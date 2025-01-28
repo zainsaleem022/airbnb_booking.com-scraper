@@ -296,14 +296,16 @@ def run_booking_bot(filters):
         
         html = fetch_html_from_url(final_url)
 
+        print(html)
+
         # Step 2: Parse HTML and extract results
         if html:
             listings = parse_html_and_extract_results(html)
             
-        
-         # Find best options
-        valid_listings = [l for l in listings if l['Price'] != float('inf')]
-        cheapest = min(valid_listings, key=lambda x: x['Price'], default=None)
+        if listings:
+             # Find best options
+            valid_listings = [l for l in listings if l['Price'] != float('inf')]
+            cheapest = min(valid_listings, key=lambda x: x['Price'], default=None)
         
         listing_id = cheapest.get("Listing ID")
         cheapest["Listing URL"] = find_link_with_listing_id(html, listing_id)
