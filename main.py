@@ -19,6 +19,13 @@ class Filters(BaseModel):
     bathrooms: int
     hasPool: bool
 
+
+
+# Default home route
+@app.get("/")
+async def home():
+    return {"message": "Welcome to the Web Scraping API", "usage": "Send a POST request to /scrape with the appropriate filters to start scraping."}
+
 # API endpoint to receive filters and run both bots in parallel
 @app.post("/scrape")
 async def scrape(request: Request):
