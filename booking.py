@@ -120,8 +120,6 @@ def find_results_in_json(data):
 
 
 def fetch_html_from_url(final_url):
-
-    print(final_url)
     
     """Fetch HTML content from the final URL with Brotli and gzip decompression support."""
     headers = {
@@ -136,6 +134,7 @@ def fetch_html_from_url(final_url):
             headers=headers,
             timeout=10  # Total timeout (connect + read) in seconds
         )
+        print(response)
         response.raise_for_status()  # Raise exception for 4xx/5xx status codes
 
         # Log response headers and raw content for debugging
