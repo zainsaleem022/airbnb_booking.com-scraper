@@ -145,8 +145,6 @@ def fetch_html_from_url(final_url):
         content_encoding = response.headers.get('Content-Encoding', '').lower()
 
         if content_encoding == 'br':
-
-            print("its brrrrrrrrrrrrrrrrrrrr")
             # Decompress Brotli response
             try:
                 decompressed_data = brotli.decompress(response.content)
@@ -156,8 +154,7 @@ def fetch_html_from_url(final_url):
                 # Fallback: Try decoding as plain text
                 return response.content.decode('utf-8', errors='replace')
         elif content_encoding == 'gzip':
-
-            print("its gzippppppppppp")
+            
             # Decompress gzip response
             compressed_data = BytesIO(response.content)
             decompressed_data = gzip.GzipFile(fileobj=compressed_data).read()
