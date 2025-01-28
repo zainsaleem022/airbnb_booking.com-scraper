@@ -41,10 +41,10 @@ def parse_html_and_extract_results(html):
                     results = find_results_in_json(json_data)
 
                     
-                    # if results is not None:
-                    #     print(f"Length of results array: {len(results)}")
-                    # else:
-                    #     logger.warning("'results' array not found in JSON data.")
+                    if results is not None:
+                        print(f"Length of results array: {len(results)}")
+                    else:
+                        logger.warning("'results' array not found in JSON data.")
 
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to decode JSON: {str(e)}")
