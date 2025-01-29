@@ -5,6 +5,7 @@ import logging
 from bs4 import BeautifulSoup
 import json
 import gzip
+import zlib
 from io import BytesIO
 import brotli  # Import the Brotli library
 import re
@@ -121,80 +122,88 @@ def find_results_in_json(data):
 
 
 def fetch_html_from_url(final_url):
-    """Fetch HTML content from the final URL with Brotli and gzip decompression support."""
+    """Fetch HTML content with enhanced headers, proper decompression, and robust retry logic."""
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',  # Indicates support for compressed responses
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'DNT': '1',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-User': '?1',
+        'Sec-Fetch-Dest': 'document',
     }
-    
-    retries = 0
+
     max_retries = 5
-    retry_delay = 1
-    
-    while retries < max_retries:
+    base_delay = 2  # Start with 2 seconds delay
+    session = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(max_retries=3)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+
+    for attempt in range(max_retries):
         try:
-            response = requests.get(
+            response = session.get(
                 final_url,
                 headers=headers,
-                timeout=10  # Total timeout (connect + read) in seconds
+                timeout=(3.05, 10)  # Connect timeout 3s, read timeout 10s
             )
-            print(response)
-            
+
+            logger.debug(f"Attempt {attempt+1}: Status {response.status_code} for {final_url}")
+
+            # Handle 202 with exponential backoff
             if response.status_code == 202:
-                # If the status code is 202, wait and retry
-                retries += 1
-                time.sleep(retry_delay)
+                retry_after = response.headers.get('Retry-After', base_delay)
+                try:
+                    delay = int(retry_after)
+                except ValueError:
+                    delay = base_delay * (2 ** attempt)
+                
+                logger.warning(f"202 Accepted. Retrying in {delay}s (Attempt {attempt+1}/{max_retries})")
+                time.sleep(delay)
                 continue
-            elif response.status_code == 200:
-                # If the status code is 200, proceed with processing the response
-                response.raise_for_status()  # Raise exception for 4xx/5xx status codes
 
-                # Log response headers and raw content for debugging
-                logger.debug("Response Headers: %s", response.headers)
-                logger.debug("Raw Content (first 100 bytes): %s", response.content[:100])
+            response.raise_for_status()
 
-                return response.content  # Return the HTML content
-            else:
-                # Handle other status codes if needed
-                response.raise_for_status()
+            # Handle decompression
+            content_encoding = response.headers.get('Content-Encoding', '').lower()
+            content = response.content
 
+            if content_encoding == 'br':
+                try:
+                    content = brotli.decompress(content)
+                except Exception as e:
+                    logger.warning(f"Brotli decompression failed: {str(e)}")
+            elif content_encoding == 'gzip':
+                try:
+                    content = gzip.decompress(content)
+                except Exception as e:
+                    logger.warning(f"Gzip decompression failed: {str(e)}")
+            elif content_encoding == 'deflate':
+                try:
+                    content = zlib.decompress(content)
+                except Exception as e:
+                    logger.warning(f"Deflate decompression failed: {str(e)}")
+
+            return content.decode('utf-8', errors='replace')
+
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"HTTP Error ({e.response.status_code}): {str(e)}")
+            if e.response.status_code == 403:
+                logger.error("Cloudflare/WAF detected. Consider using proxies.")
+                break
         except requests.exceptions.RequestException as e:
-            logger.error("Request failed: %s", e)
-            break
-
-        # Check the Content-Encoding header to determine decompression method
-        content_encoding = response.headers.get('Content-Encoding', '').lower()
-
-        if content_encoding == 'br':
-            # Decompress Brotli response
-            try:
-                decompressed_data = brotli.decompress(response.content)
-                return decompressed_data.decode('utf-8')  # Decode to string
-            except brotli.error as e:
-                # logger.error("Brotli decompression failed. Attempting fallback methods...")
-                # Fallback: Try decoding as plain text
-                return response.content.decode('utf-8', errors='replace')
-        elif content_encoding == 'gzip':
-            # Decompress gzip response
-            compressed_data = BytesIO(response.content)
-            decompressed_data = gzip.GzipFile(fileobj=compressed_data).read()
-            return decompressed_data.decode('utf-8')  # Decode to string
-        elif content_encoding == 'deflate':
-            # Decompress deflate response
-            import zlib
-            decompressed_data = zlib.decompress(response.content)
-            return decompressed_data.decode('utf-8')  # Decode to string
-        else:
-            # Assume plain text response
-            return response.text
+            logger.error(f"Request failed: {str(e)}")
         
-    # except Timeout:
-    #     logger.warning("Request timed out after 10 seconds - no content received")
-    # except RequestException as e:
-    #     logger.error(f"Request failed: {str(e)}")
-    
-    return None  # Explicit return on failure
+        # Exponential backoff
+        delay = base_delay * (2 ** attempt)
+        time.sleep(delay)
+
+    logger.error(f"Failed to fetch URL after {max_retries} attempts: {final_url}")
+    return None
 
 def find_link_with_listing_id(html, listing_id):
     """Find and print the link containing the specified listing ID in its query parameters."""
