@@ -10,11 +10,109 @@ from io import BytesIO
 import brotli  # Import the Brotli library
 import re
 import time
+import random
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+
+def fetch_html_from_url(final_url):
+    """Fetch HTML content with enhanced headers and bot detection bypass."""
+    # Rotate user-agent strings
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/120.0",
+    ]
+
+    # Enhanced headers to mimic a real browser
+    headers = {
+        'User-Agent': random.choice(user_agents),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Referer': 'https://www.google.com/',  # Simulate coming from a search engine
+        'DNT': '1',  # Do Not Track
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-User': '?1',
+        'Sec-Fetch-Dest': 'document',
+    }
+
+    # Use a session to persist cookies
+    session = requests.Session()
+    session.headers.update(headers)
+
+    retries = 0
+    max_retries = 5
+    base_delay = 1  # Start with 1 second delay
+
+    while retries < max_retries:
+        try:
+            # Add a random delay between retries
+            time.sleep(base_delay * (2 ** retries) + random.uniform(0, 1))
+
+            response = session.get(
+                final_url,
+                timeout=10  # Total timeout (connect + read) in seconds
+            )
+            logger.debug(f"Attempt {retries + 1}: Status {response.status_code} for {final_url}")
+
+            if response.status_code == 202:
+                # If the status code is 202, wait and retry
+                retries += 1
+                continue
+            elif response.status_code == 200:
+                # If the status code is 200, proceed with processing the response
+                response.raise_for_status()  # Raise exception for 4xx/5xx status codes
+
+                # Log response headers and raw content for debugging
+                logger.debug("Response Headers: %s", response.headers)
+                logger.debug("Raw Content (first 100 bytes): %s", response.content[:100])
+
+                # Handle decompression
+                content_encoding = response.headers.get('Content-Encoding', '').lower()
+                content = response.content
+
+                if content_encoding == 'br':
+                    try:
+                        content = brotli.decompress(content)
+                    except Exception as e:
+                        logger.warning(f"Brotli decompression failed: {str(e)}")
+                elif content_encoding == 'gzip':
+                    try:
+                        content = gzip.decompress(content)
+                    except Exception as e:
+                        logger.warning(f"Gzip decompression failed: {str(e)}")
+                elif content_encoding == 'deflate':
+                    try:
+                        content = zlib.decompress(content)
+                    except Exception as e:
+                        logger.warning(f"Deflate decompression failed: {str(e)}")
+
+                return content.decode('utf-8', errors='replace')
+
+            else:
+                # Handle other status codes if needed
+                response.raise_for_status()
+
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"HTTP Error ({e.response.status_code}): {str(e)}")
+            if e.response.status_code == 403:
+                logger.error("Cloudflare/WAF detected. Consider using proxies.")
+                break
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request failed: {str(e)}")
+        
+        retries += 1
+
+    logger.error(f"Failed to fetch URL after {max_retries} attempts: {final_url}")
+    return None
 
 
 def parse_html_and_extract_results(html):
@@ -120,90 +218,6 @@ def find_results_in_json(data):
     # Return None if "results" is not found
     return None
 
-
-def fetch_html_from_url(final_url):
-    """Fetch HTML content with enhanced headers, proper decompression, and robust retry logic."""
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'DNT': '1',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-User': '?1',
-        'Sec-Fetch-Dest': 'document',
-    }
-
-    max_retries = 5
-    base_delay = 2  # Start with 2 seconds delay
-    session = requests.Session()
-    adapter = requests.adapters.HTTPAdapter(max_retries=3)
-    session.mount('http://', adapter)
-    session.mount('https://', adapter)
-
-    for attempt in range(max_retries):
-        try:
-            response = session.get(
-                final_url,
-                headers=headers,
-                timeout=(3.05, 10)  # Connect timeout 3s, read timeout 10s
-            )
-
-            logger.debug(f"Attempt {attempt+1}: Status {response.status_code} for {final_url}")
-
-            # Handle 202 with exponential backoff
-            if response.status_code == 202:
-                retry_after = response.headers.get('Retry-After', base_delay)
-                try:
-                    delay = int(retry_after)
-                except ValueError:
-                    delay = base_delay * (2 ** attempt)
-                
-                logger.warning(f"202 Accepted. Retrying in {delay}s (Attempt {attempt+1}/{max_retries})")
-                time.sleep(delay)
-                continue
-
-            response.raise_for_status()
-
-            # Handle decompression
-            content_encoding = response.headers.get('Content-Encoding', '').lower()
-            content = response.content
-
-            if content_encoding == 'br':
-                try:
-                    content = brotli.decompress(content)
-                except Exception as e:
-                    logger.warning(f"Brotli decompression failed: {str(e)}")
-            elif content_encoding == 'gzip':
-                try:
-                    content = gzip.decompress(content)
-                except Exception as e:
-                    logger.warning(f"Gzip decompression failed: {str(e)}")
-            elif content_encoding == 'deflate':
-                try:
-                    content = zlib.decompress(content)
-                except Exception as e:
-                    logger.warning(f"Deflate decompression failed: {str(e)}")
-
-            return content.decode('utf-8', errors='replace')
-
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP Error ({e.response.status_code}): {str(e)}")
-            if e.response.status_code == 403:
-                logger.error("Cloudflare/WAF detected. Consider using proxies.")
-                break
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Request failed: {str(e)}")
-        
-        # Exponential backoff
-        delay = base_delay * (2 ** attempt)
-        time.sleep(delay)
-
-    logger.error(f"Failed to fetch URL after {max_retries} attempts: {final_url}")
-    return None
 
 def find_link_with_listing_id(html, listing_id):
     """Find and print the link containing the specified listing ID in its query parameters."""
