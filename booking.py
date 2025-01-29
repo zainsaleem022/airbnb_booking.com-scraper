@@ -8,6 +8,7 @@ import gzip
 from io import BytesIO
 import brotli  # Import the Brotli library
 import re
+import time
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -41,10 +42,10 @@ def parse_html_and_extract_results(html):
                     results = find_results_in_json(json_data)
 
                     
-                    if results is not None:
-                        print(f"Length of results array: {len(results)}")
-                    else:
-                        logger.warning("'results' array not found in JSON data.")
+                    # if results is not None:
+                    #     print(f"Length of results array: {len(results)}")
+                    # else:
+                    #     logger.warning("'results' array not found in JSON data.")
 
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to decode JSON: {str(e)}")
@@ -120,7 +121,6 @@ def find_results_in_json(data):
 
 
 def fetch_html_from_url(final_url):
-    
     """Fetch HTML content from the final URL with Brotli and gzip decompression support."""
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -128,18 +128,40 @@ def fetch_html_from_url(final_url):
         'Accept-Encoding': 'gzip, deflate, br',  # Indicates support for compressed responses
     }
     
-    try:
-        response = requests.get(
-            final_url,
-            headers=headers,
-            timeout=10  # Total timeout (connect + read) in seconds
-        )
-        print(response)
-        response.raise_for_status()  # Raise exception for 4xx/5xx status codes
+    retries = 0
+    max_retries = 5
+    retry_delay = 1
+    
+    while retries < max_retries:
+        try:
+            response = requests.get(
+                final_url,
+                headers=headers,
+                timeout=10  # Total timeout (connect + read) in seconds
+            )
+            print(response)
+            
+            if response.status_code == 202:
+                # If the status code is 202, wait and retry
+                retries += 1
+                time.sleep(retry_delay)
+                continue
+            elif response.status_code == 200:
+                # If the status code is 200, proceed with processing the response
+                response.raise_for_status()  # Raise exception for 4xx/5xx status codes
 
-        # Log response headers and raw content for debugging
-        logger.debug("Response Headers: %s", response.headers)
-        logger.debug("Raw Content (first 100 bytes): %s", response.content[:100])
+                # Log response headers and raw content for debugging
+                logger.debug("Response Headers: %s", response.headers)
+                logger.debug("Raw Content (first 100 bytes): %s", response.content[:100])
+
+                return response.content  # Return the HTML content
+            else:
+                # Handle other status codes if needed
+                response.raise_for_status()
+
+        except requests.exceptions.RequestException as e:
+            logger.error("Request failed: %s", e)
+            break
 
         # Check the Content-Encoding header to determine decompression method
         content_encoding = response.headers.get('Content-Encoding', '').lower()
@@ -154,7 +176,6 @@ def fetch_html_from_url(final_url):
                 # Fallback: Try decoding as plain text
                 return response.content.decode('utf-8', errors='replace')
         elif content_encoding == 'gzip':
-            
             # Decompress gzip response
             compressed_data = BytesIO(response.content)
             decompressed_data = gzip.GzipFile(fileobj=compressed_data).read()
@@ -168,10 +189,10 @@ def fetch_html_from_url(final_url):
             # Assume plain text response
             return response.text
         
-    except Timeout:
-        logger.warning("Request timed out after 10 seconds - no content received")
-    except RequestException as e:
-        logger.error(f"Request failed: {str(e)}")
+    # except Timeout:
+    #     logger.warning("Request timed out after 10 seconds - no content received")
+    # except RequestException as e:
+    #     logger.error(f"Request failed: {str(e)}")
     
     return None  # Explicit return on failure
 
@@ -299,16 +320,14 @@ def run_booking_bot(filters):
         
         html = fetch_html_from_url(final_url)
 
-        print(html)
-
         # Step 2: Parse HTML and extract results
         if html:
             listings = parse_html_and_extract_results(html)
             
-        if listings:
-             # Find best options
-            valid_listings = [l for l in listings if l['Price'] != float('inf')]
-            cheapest = min(valid_listings, key=lambda x: x['Price'], default=None)
+        
+         # Find best options
+        valid_listings = [l for l in listings if l['Price'] != float('inf')]
+        cheapest = min(valid_listings, key=lambda x: x['Price'], default=None)
         
         listing_id = cheapest.get("Listing ID")
         cheapest["Listing URL"] = find_link_with_listing_id(html, listing_id)
