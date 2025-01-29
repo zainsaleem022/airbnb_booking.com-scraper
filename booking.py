@@ -1,122 +1,143 @@
 import urllib.parse as urlparse
-import requests
 from requests.exceptions import Timeout, RequestException
 import logging
 from bs4 import BeautifulSoup
 import json
-import gzip
-import zlib
 from io import BytesIO
-import brotli  # Import the Brotli library
 import re
 import time
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
 import random
+from selenium.common.exceptions import TimeoutException
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 
-def fetch_html_from_url(final_url):
-    """Fetch HTML content with enhanced headers and bot detection bypass."""
-    # Rotate user-agent strings
+def fetch_html_from_url(url):
+    """Fetch fully rendered HTML using a fast, headless browser configuration."""
+    chrome_options = Options()
+    
+    # Enable headless mode for speed
+    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")  # Remove automation flags
+    chrome_options.add_argument("--disable-infobars")
+    chrome_options.add_argument("--disable-notifications")
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--disable-logging")
+    chrome_options.add_argument("--log-level=3")
+    chrome_options.add_argument("--disable-popup-blocking")
+    chrome_options.add_argument("--disable-background-networking")
+    chrome_options.add_argument("--disable-background-timer-throttling")
+    chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+    chrome_options.add_argument("--disable-breakpad")
+    chrome_options.add_argument("--disable-client-side-phishing-detection")
+    chrome_options.add_argument("--disable-component-update")
+    chrome_options.add_argument("--disable-default-apps")
+    chrome_options.add_argument("--disable-domain-reliability")
+    chrome_options.add_argument("--disable-renderer-backgrounding")
+    chrome_options.add_argument("--disable-sync")
+    chrome_options.add_argument("--metrics-recording-only")
+    chrome_options.add_argument("--safebrowsing-disable-auto-update")
+    chrome_options.add_argument("--password-store=basic")
+    chrome_options.add_argument("--use-mock-keychain")
+
+    prefs = {
+        'profile.default_content_setting_values': {
+            'javascript': 1,
+            'cookies': 1,
+            'images': 1,  # Enable images
+            'plugins': 1,
+            'popups': 1,
+            'geolocation': 1,
+            'notifications': 1,
+            'auto_select_certificate': 1,
+            'fullscreen': 1,
+            'mouselock': 1,
+            'mixed_script': 1,
+            'media_stream': 1,
+            'media_stream_mic': 1,
+            'media_stream_camera': 1,
+            'protocol_handlers': 1,
+            'ppapi_broker': 1,
+            'automatic_downloads': 1,
+            'midi_sysex': 1,
+            'push_messaging': 1,
+            'ssl_cert_decisions': 1,
+            'metro_switch_to_desktop': 1,
+            'protected_media_identifier': 1,
+            'app_banner': 1,
+            'site_engagement': 1,
+            'durable_storage': 1
+        }
+    }
+    chrome_options.add_experimental_option('prefs', prefs)
+
+    # Rotate user-agent
     user_agents = [
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/120.0",
     ]
+    chrome_options.add_argument(f"user-agent={random.choice(user_agents)}")
 
-    # Enhanced headers to mimic a real browser
-    headers = {
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br, zstd',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Cache-Control': 'max-age=0',
-        'Connection': 'keep-alive',
-        'Cookie': 'pcm_personalization_disabled=0; pcm_consent=analytical%3Dtrue%26countryCode%3DPK%26consentId%3Deaa2bd49-25c1-4655-a43c-ffac6a3cef3e%26consentedAt%3D2025-01-08T14%3A53%3A43.435Z%26expiresAt%3D2025-07-07T14%3A53%3A43.435Z%26implicit%3Dtrue%26marketing%3Dtrue%26regionCode%3DPB%26regulation%3Dnone%26legacyRegulation%3Dnone; cors_js=1; bkng_sso_auth=CAIQsOnuTRpmmF/DV4EpjZlfFxsixi8teQrXra9yCJZi25EZu7f+3sS2YU9KzvzwcUI07wDeKUnRj1a9yKhtxyJv3FNs9T/SeSPeGcZl0cO19m8s8qMv/AsLcLFPU8Tn4IwxJEZD4KodRwHQA3gL; BJS=-; bkng=11UmFuZG9tSVYkc2RlIyh9YXSgTtYpR%2F1WOjMvuuinviHfJq05vX0EE2PLM7slgKchnrUZcQ964qBC%2B9Orj1pneOOJasMDfeAScjo1LqblfFOsP9nsJ5dI82akyTan5VzBZa%2FimwoIVWrcWJ%2FhMvzqgpt3Do%2FFoRHZ%2Frtrb34%2FhHH7VGYUx5gcm%2B5g9XsH9udw%2Fjv8eOpX6jSWxAYQ9OdIrw%3D%3D; lastSeen=1738188248464; aws-waf-token=bdd0337b-815d-4f38-a5e2-41971e70127e:BQoAlsmZqdtTAAAA:cScfXgs2fx39zdP8gXCrRLP/x3K0P5PHcy2dlILtQpvbu5qv6Q2MamyVIQDQELdehoimQfIMhNSumQ7qu42exK7QQX/RLg24g4BiHtHwrh6Qk8WzmiiU4d2QdItW5hepl3fA3z8M6NLkFE2HD05PjpvgIeC4zxP6ZFmmRk0/sudrp47b8QMHUNeCBxflgLzQsDl4HovUwYuGyuZXE7vWCOJCwL9SNj5bTgpYjjC+ptS8iWX+zADIOzMzbih2lofte1c=',
-        'Priority': 'u=0, i',
-        'Referer': 'https://www.google.com/',  # Simulate coming from a search engine
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'cross-site',
-        'Sec-Fetch-User': '?1',
-        'Upgrade-Insecure-Requests': '1',
-        'User-Agent': random.choice(user_agents),
-    }
-
-    # Use a session to persist cookies
-    session = requests.Session()
-    session.headers.update(headers)
-
-    retries = 0
-    max_retries = 5
-    base_delay = 1  # Start with 1 second delay
-
-    while retries < max_retries:
-        try:
-            # Add a random delay between retries
-            time.sleep(base_delay * (2 ** retries) + random.uniform(0, 1))
-
-            response = session.get(
-                final_url,
-                timeout=10  # Total timeout (connect + read) in seconds
-            )
-            logger.debug(f"Attempt {retries + 1}: Status {response.status_code} for {final_url}")
-
-            if response.status_code == 202:
-                # If the status code is 202, wait and retry
-                retries += 1
-                continue
-            elif response.status_code == 200:
-                # If the status code is 200, proceed with processing the response
-                response.raise_for_status()  # Raise exception for 4xx/5xx status codes
-
-                # Log response headers and raw content for debugging
-                logger.debug("Response Headers: %s", response.headers)
-                logger.debug("Raw Content (first 100 bytes): %s", response.content[:100])
-
-                # Handle decompression
-                content_encoding = response.headers.get('Content-Encoding', '').lower()
-                content = response.content
-
-                if content_encoding == 'br':
-                    try:
-                        content = brotli.decompress(content)
-                    except Exception as e:
-                        logger.warning(f"Brotli decompression failed: {str(e)}")
-                elif content_encoding == 'gzip':
-                    try:
-                        content = gzip.decompress(content)
-                    except Exception as e:
-                        logger.warning(f"Gzip decompression failed: {str(e)}")
-                elif content_encoding == 'deflate':
-                    try:
-                        content = zlib.decompress(content)
-                    except Exception as e:
-                        logger.warning(f"Deflate decompression failed: {str(e)}")
-                elif content_encoding == 'zstd':
-                    logger.warning("Zstd compression is not supported. Returning raw content.")
-
-                return content.decode('utf-8', errors='replace')
-
-            else:
-                # Handle other status codes if needed
-                response.raise_for_status()
-
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP Error ({e.response.status_code}): {str(e)}")
-            if e.response.status_code == 403:
-                logger.error("Cloudflare/WAF detected. Consider using proxies.")
-                break
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Request failed: {str(e)}")
+    try:
+        # Auto-install ChromeDriver
+        service = Service(ChromeDriverManager().install())
         
-        retries += 1
+        # Start browser
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        
+        # Remove navigator.webdriver flag
+        driver.execute_cdp_cmd(
+            "Page.addScriptToEvaluateOnNewDocument",
+            {
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined
+                    });
+                """
+            },
+        )
 
-    logger.error(f"Failed to fetch URL after {max_retries} attempts: {final_url}")
-    return None
+        # Fetch the page
+        driver.set_page_load_timeout(15)  # Set a reasonable timeout
+        driver.get(url)
+
+        # Wait for the page to load (minimal wait for critical content)
+        try:
+            WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.XPATH, '//div[@data-testid="property-card"]'))
+            )
+        except TimeoutException:
+            logger.debug("No property cards found, returning available HTML")
+
+        # Get the page source (HTML)
+        html_content = driver.page_source
+
+        # Close the browser
+        driver.quit()
+
+        return html_content
+
+    except Exception as e:
+        logger.error(f"Selenium error: {str(e)}")
+        if 'driver' in locals():
+            driver.quit()
+        return None
+
+
+
 
 
 def parse_html_and_extract_results(html):
@@ -221,6 +242,7 @@ def find_results_in_json(data):
     
     # Return None if "results" is not found
     return None
+
 
 
 def find_link_with_listing_id(html, listing_id):
@@ -350,6 +372,7 @@ def run_booking_bot(filters):
         # Step 2: Parse HTML and extract results
         if html:
             listings = parse_html_and_extract_results(html)
+            # print(listings)
             
         
          # Find best options
