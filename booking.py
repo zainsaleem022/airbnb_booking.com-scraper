@@ -21,27 +21,29 @@ def fetch_html_from_url(final_url):
     """Fetch HTML content with enhanced headers and bot detection bypass."""
     # Rotate user-agent strings
     user_agents = [
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/120.0",
     ]
 
     # Enhanced headers to mimic a real browser
     headers = {
-        'User-Agent': random.choice(user_agents),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br, zstd',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'max-age=0',
         'Connection': 'keep-alive',
+        'Cookie': 'pcm_personalization_disabled=0; pcm_consent=analytical%3Dtrue%26countryCode%3DPK%26consentId%3Deaa2bd49-25c1-4655-a43c-ffac6a3cef3e%26consentedAt%3D2025-01-08T14%3A53%3A43.435Z%26expiresAt%3D2025-07-07T14%3A53%3A43.435Z%26implicit%3Dtrue%26marketing%3Dtrue%26regionCode%3DPB%26regulation%3Dnone%26legacyRegulation%3Dnone; cors_js=1; bkng_sso_auth=CAIQsOnuTRpmmF/DV4EpjZlfFxsixi8teQrXra9yCJZi25EZu7f+3sS2YU9KzvzwcUI07wDeKUnRj1a9yKhtxyJv3FNs9T/SeSPeGcZl0cO19m8s8qMv/AsLcLFPU8Tn4IwxJEZD4KodRwHQA3gL; BJS=-; bkng=11UmFuZG9tSVYkc2RlIyh9YXSgTtYpR%2F1WOjMvuuinviHfJq05vX0EE2PLM7slgKchnrUZcQ964qBC%2B9Orj1pneOOJasMDfeAScjo1LqblfFOsP9nsJ5dI82akyTan5VzBZa%2FimwoIVWrcWJ%2FhMvzqgpt3Do%2FFoRHZ%2Frtrb34%2FhHH7VGYUx5gcm%2B5g9XsH9udw%2Fjv8eOpX6jSWxAYQ9OdIrw%3D%3D; lastSeen=1738188248464; aws-waf-token=bdd0337b-815d-4f38-a5e2-41971e70127e:BQoAlsmZqdtTAAAA:cScfXgs2fx39zdP8gXCrRLP/x3K0P5PHcy2dlILtQpvbu5qv6Q2MamyVIQDQELdehoimQfIMhNSumQ7qu42exK7QQX/RLg24g4BiHtHwrh6Qk8WzmiiU4d2QdItW5hepl3fA3z8M6NLkFE2HD05PjpvgIeC4zxP6ZFmmRk0/sudrp47b8QMHUNeCBxflgLzQsDl4HovUwYuGyuZXE7vWCOJCwL9SNj5bTgpYjjC+ptS8iWX+zADIOzMzbih2lofte1c=',
+        'Priority': 'u=0, i',
         'Referer': 'https://www.google.com/',  # Simulate coming from a search engine
-        'DNT': '1',  # Do Not Track
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-User': '?1',
         'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'cross-site',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1',
+        'User-Agent': random.choice(user_agents),
     }
 
     # Use a session to persist cookies
@@ -94,6 +96,8 @@ def fetch_html_from_url(final_url):
                         content = zlib.decompress(content)
                     except Exception as e:
                         logger.warning(f"Deflate decompression failed: {str(e)}")
+                elif content_encoding == 'zstd':
+                    logger.warning("Zstd compression is not supported. Returning raw content.")
 
                 return content.decode('utf-8', errors='replace')
 
