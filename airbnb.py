@@ -93,6 +93,45 @@ def fetch_listings_html(url):
     
     return None  # Explicit return on failure
 
+
+
+def find_nested_attribute(data, keys):
+    """
+    Recursively search for a nested attribute in a JSON-like structure.
+    Handles multiple occurrences of intermediate keys (e.g., multiple "secondaryLine" objects).
+    
+    :param data: The JSON-like data structure to search in.
+    :param keys: A list of keys representing the path to the desired attribute.
+    :return: The value of the nested attribute if found, otherwise None.
+    """
+    if not keys or not isinstance(data, (dict, list)):
+        return None
+    
+    # If data is a list, iterate through each item
+    if isinstance(data, list):
+        for item in data:
+            result = find_nested_attribute(item, keys)
+            if result is not None:
+                return result
+        return None
+    
+    # If data is a dictionary
+    key = keys[0]
+    if key in data:
+        if len(keys) == 1:
+            return data[key]
+        else:
+            return find_nested_attribute(data[key], keys[1:])
+    
+    # Recursively search through the dictionary
+    for k, v in data.items():
+        if isinstance(v, (dict, list)):
+            result = find_nested_attribute(v, keys)
+            if result is not None:
+                return result
+    return None
+
+
 def extract_listing_data(html):
     """Advanced data extraction with multiple fallback methods."""
     soup = BeautifulSoup(html, 'html.parser')
@@ -118,7 +157,7 @@ def extract_listing_data(html):
                 except json.JSONDecodeError:
                     continue
     
-    # Process found data
+   # Process found data
     if script_data:
         for item in safe_get(script_data, ['niobeMinimalClientData'], []):
             if isinstance(item, list) and len(item) > 1:
@@ -127,17 +166,21 @@ def extract_listing_data(html):
                     if result.get('__typename') == 'StaySearchResult':
                         try:
                             listing = result.get('listing', {})
-                            price_info = result.get('pricingQuote', {})
                             
+                            # Dynamically find the price in the nested structure
+                            total_price_str = find_nested_attribute(result, ['secondaryLine', 'price'])
+                            
+                            if total_price_str is None:
+                                logger.warning("Price not found in the JSON structure.")
+                                total_price_str = "N/A"
                             # Price parsing and discount calculation
-                            total_price_str = safe_get(price_info, ['structuredStayDisplayPrice', 'secondaryLine', 'price'], '')
-                            numeric_price = parse_price(total_price_str)
+                            numeric_price = parse_price(total_price_str) if total_price_str else float('inf')
                             if numeric_price != float('inf'):
                                 discounted_price = numeric_price * 0.85
                                 currency_symbol = '€' if '€' in total_price_str else '$'
                                 formatted_discounted_price = f"{currency_symbol}{discounted_price:.2f}"
                             else:
-                                formatted_discounted_price = total_price_str
+                                formatted_discounted_price = total_price_str if total_price_str else "N/A"
                             
                             # Image handling
                             contextual_pictures = result.get('contextualPictures', [])
@@ -149,8 +192,8 @@ def extract_listing_data(html):
                                 "Name": listing.get("name"),
                                 "Title": listing.get("title"),
                                 "Average Rating": result.get('avgRatingLocalized'),
-                                "Discounted Price": safe_get(price_info, ['structuredStayDisplayPrice', 'primaryLine', 'discountedPrice']),
-                                "Original Price": safe_get(price_info, ['structuredStayDisplayPrice', 'primaryLine', 'originalPrice']),
+                                "Discounted Price": "",
+                                "Original Price": "",
                                 "Total Price": formatted_discounted_price,
                                 "Picture": picture_url,
                                 "Website": "airbnb",
