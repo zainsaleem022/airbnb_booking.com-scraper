@@ -10,58 +10,75 @@ import brotli  # Import the Brotli library
 import re
 import time
 from urllib.parse import quote
-# Set up logging
+import requests
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def fetch_html_from_url(final_url):
-    """Fetch HTML content from the final URL with Brotli and gzip decompression support."""
+    """Fetch HTML content from the final URL using Bright Data's API as a proxy with headers and cookies."""
     
-    # Use a session to persist headers & cookies
-    session = requests.Session()
-
-    
-    headers = {
-        "authority": "www.booking.com",
-        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-        "accept-encoding": "gzip, deflate, br, zstd",
-        "accept-language": "en-US,en;q=0.9",
-        "cache-control": "max-age=0",
-        "priority": "u=0, i",
-        "sec-ch-ua": '"Not A(Brand";v="8", "Chromium";v="132", "Google Chrome";v="132"',
-        "sec-ch-ua-mobile": "?1",
-        "sec-ch-ua-platform": '"Android"',
-        "sec-fetch-dest": "document",
-        "sec-fetch-mode": "navigate",
-        "sec-fetch-site": "same-origin",
-        "sec-fetch-user": "?1",
-        "upgrade-insecure-requests": "1",
-        "user-agent": "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36"
+    # Bright Data API configuration
+    api_url = "https://api.brightdata.com/request"
+    api_headers = {
+        "Authorization": "Bearer 93912adfb968ad9986ff7abe454392fe365bc7f43b2d25f20ec7a10ee6c82779",
+        "Content-Type": "application/json"
     }
     
-    cookies = {
-        'pcm_personalization_disabled': '0',
-        'bkng_sso_auth': 'CAIQsOnuTRpmKeQxi6MaBR7/5Y10VoWzhVrcH7OR92NSZHHNpyr/u0gc1XWKOekh9bOJFFOIlxmGvvnqYNMzTlrumrgJujct2yU+WXc/HuCOUJgIr/7Uvu0f8UwiV+ngT8vcR3o5YeFrZiSxjNRf',
-        'pcm_consent': 'analytical%3Dtrue%26countryCode%3DPK%26consentId%3Dbfb591aa-6278-420a-9ad3-85e5b520f410%26consentedAt%3D2025-01-30T19%3A24%3A57.551Z%26expiresAt%3D2025-07-29T19%3A24%3A57.551Z%26implicit%3Dtrue%26marketing%3Dtrue%26regionCode%3DIS%26regulation%3Dnone%26legacyRegulation%3Dnone',
-        '_ga_A12345': 'GS1.1.1738264271.13.1.1738265098.0.0.153265832',
-        '_ga_SEJWFCBCVM': 'GS1.1.1738264271.11.1.1738265098.60.0.0',
-        'lastSeen': '1738265098390',
-        'FPID': 'FPID2.2.Tq5tlTqSyoXtGc9QUng0XA5FfFGw6RDhwNyOR8hhXKM%3D.1737617103',
-        'FPLC': 'QDhVOlEV1u8iqqw%2FUjcgFWXXxgBVReO%2BgaoaFBkeDknbcJ%2Fo06y84HnUHMeZ%2Brwi4bcdZE6wOCv72XRacUkBJGuRZ%2FrEZ0XcRHZCInOYM%2Fgdn3Agz85NV6Gy%2BPy4FA%3D%3D',
-        'cors_js': '1',
-        'OptanonConsent': f'isGpcEnabled=0&datestamp=Fri+Jan+31+2025+00%3A24%3A58+GMT%2B0500+(Pakistan+Standard+Time)&version=202403.2.0&browserGpcFlag=0&isIABGlobal=false&hosts=&consentId=f68af335-eb79-4357-b9cf-16807686c9d8&interactionCount=0&isAnonUser=1&landingPath={quote(final_url)}',
-        'bkng_prue': '1',
-        'cgumid': '0eY4oOE3SZ9jJ7fNnQVdI4-qegdbxmgF',
-        'bkng_sso_session': 'e30',
-        'bkng_sso_ses': 'e30',
-        'AMP_TOKEN': '%24NOT_FOUND',
-        '_ga': 'GA1.2.828592122.1738265101',
-        '_gid': 'GA1.2.2013143855.1738265102',
-        '_pin_unauth': 'dWlkPVpXUXhOV0V5WWpZdFlqQXpNQzAwT0Rnd0xXSmpNR010Wmpkak5UbGtOR0UyWVdVMg',
-        'cto_bundle': 'tQoHiV94WFNzQlQ3MzQxU1hmOWFFdHJVZ0NnVUplTmRJOENOMnY2QWtLNTJZTllHdSUyRng3aGFxNm9ZVzlYdWhORGRaYTAlMkZsM3N6MjVOJTJGdVN4cmxTMTl0NW5YZGZtNiUyQlFBZEFTJTJCbzRUUVVhdnFtNm1CeElNdVpQZUZlZ1VNQjRvJTJGQ1FTTkdyYjFEUGR5RVoxbHpmcktuJTJCOEY5Q0tSTGtiRlY5cWNjRHpDenhEJTJCbFB0ZCUyQmhtaGRHY2swMDlwOUhIMDd3OENGYmJZcmd0dnI3RSUyQlQ5cXhQdnpZUGNkR1picXJRSW1TJTJGQlZ5Qno3TkNPVGs2YXFydiUyRkhHeW5yMmVhOHNtN1pW',
-        'bkng': '11UmFuZG9tSVYkc2RlIyh9Yaa29%2F3xUOLbca8KLfxLPedWG1lygLsik1vDj1Qv%2BUxMqpP9mm%2BWUc7ru67exlvDSuKCoC7%2BV4ClMU2OxocjoMnmlQQgc1gW195upt6nU4RofDd67B1GkrQxFu3KZngr8G2Xi53TECixUEh4TNye4cWdOk%2Fz3o3NHAYPO3YCbIyh8qXicKqM5Gw%3D',
-        'aws-waf-token': 'f47b6f13-0805-437b-a9bd-28ed6a3aa5de:BQoAtHWHtzWLAAAA:evoGVCHKGVSY0sc7Dk3JKjckY78fhHHk/IRPccifrWCEn2bipt0Kd2REB8PTDEoscUxPYPEkR3mvPqoZiFGCBuE3dkQ0ljtVXCPcK2rSYflFVWVkSVYrU2/WDGF0ycdiNHzsv9X9GMURnNckv3BT0OuJnNE8MWRIlTHQkyQDOzSP6nksUpB3ubkyHm1BCz9dp1EbBXTFcM9iEiMOxUK6jHimzyGTdRJuoiv7zpZPQoh7puLJUpI9i3nbyj3EGL63Bi4=',
-        '_gat': '1'
+    # Original headers and cookies from the code
+    # original_headers = {
+    #     "authority": "www.booking.com",
+    #     "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    #     "accept-encoding": "gzip, deflate, br, zstd",
+    #     "accept-language": "en-US,en;q=0.9",
+    #     "cache-control": "max-age=0",
+    #     "priority": "u=0, i",
+    #     "sec-ch-ua": '"Not A(Brand";v="8", "Chromium";v="132", "Google Chrome";v="132"',
+    #     "sec-ch-ua-mobile": "?1",
+    #     "sec-ch-ua-platform": '"Android"',
+    #     "sec-fetch-dest": "document",
+    #     "sec-fetch-mode": "navigate",
+    #     "sec-fetch-site": "same-origin",
+    #     "sec-fetch-user": "?1",
+    #     "upgrade-insecure-requests": "1",
+    #     "user-agent": "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36"
+    # }
+    
+    # original_cookies = {
+    #     'pcm_personalization_disabled': '0',
+    #     'bkng_sso_auth': 'CAIQsOnuTRpmKeQxi6MaBR7/5Y10VoWzhVrcH7OR92NSZHHNpyr/u0gc1XWKOekh9bOJFFOIlxmGvvnqYNMzTlrumrgJujct2yU+WXc/HuCOUJgIr/7Uvu0f8UwiV+ngT8vcR3o5YeFrZiSxjNRf',
+    #     'pcm_consent': 'analytical%3Dtrue%26countryCode%3DPK%26consentId%3Dbfb591aa-6278-420a-9ad3-85e5b520f410%26consentedAt%3D2025-01-30T19%3A24%3A57.551Z%26expiresAt%3D2025-07-29T19%3A24%3A57.551Z%26implicit%3Dtrue%26marketing%3Dtrue%26regionCode%3DIS%26regulation%3Dnone%26legacyRegulation%3Dnone',
+    #     '_ga_A12345': 'GS1.1.1738264271.13.1.1738265098.0.0.153265832',
+    #     '_ga_SEJWFCBCVM': 'GS1.1.1738264271.11.1.1738265098.60.0.0',
+    #     'lastSeen': '1738265098390',
+    #     'FPID': 'FPID2.2.Tq5tlTqSyoXtGc9QUng0XA5FfFGw6RDhwNyOR8hhXKM%3D.1737617103',
+    #     'FPLC': 'QDhVOlEV1u8iqqw%2FUjcgFWXXxgBVReO%2BgaoaFBkeDknbcJ%2Fo06y84HnUHMeZ%2Brwi4bcdZE6wOCv72XRacUkBJGuRZ%2FrEZ0XcRHZCInOYM%2Fgdn3Agz85NV6Gy%2BPy4FA%3D%3D',
+    #     'cors_js': '1',
+    #     'OptanonConsent': f'isGpcEnabled=0&datestamp=Fri+Jan+31+2025+00%3A24%3A58+GMT%2B0500+(Pakistan+Standard+Time)&version=202403.2.0&browserGpcFlag=0&isIABGlobal=false&hosts=&consentId=f68af335-eb79-4357-b9cf-16807686c9d8&interactionCount=0&isAnonUser=1&landingPath={quote(final_url)}',
+    #     'bkng_prue': '1',
+    #     'cgumid': '0eY4oOE3SZ9jJ7fNnQVdI4-qegdbxmgF',
+    #     'bkng_sso_session': 'e30',
+    #     'bkng_sso_ses': 'e30',
+    #     'AMP_TOKEN': '%24NOT_FOUND',
+    #     '_ga': 'GA1.2.828592122.1738265101',
+    #     '_gid': 'GA1.2.2013143855.1738265102',
+    #     '_pin_unauth': 'dWlkPVpXUXhOV0V5WWpZdFlqQXpNQzAwT0Rnd0xXSmpNR010Wmpkak5UbGtOR0UyWVdVMg',
+    #     'cto_bundle': 'tQoHiV94WFNzQlQ3MzQxU1hmOWFFdHJVZ0NnVUplTmRJOENOMnY2QWtLNTJZTllHdSUyRng3aGFxNm9ZVzlYdWhORGRaYTAlMkZsM3N6MjVOJTJGdVN4cmxTMTl0NW5YZGZtNiUyQlRBZEFTJTJCbzRUUVVhdnFtNm1CeElNdVpQZUZlZ1VNQjRvJTJGQ1FTTkdyYjFEUGR5RVoxbHpmcktuJTJCOEY5Q0tSTGtiRlY5cWNjRHpDenhEJTJCbFB0ZCUyQmhtaGRHY2swMDlwOUhIMDd3OENGYmJZcmd0dnI3RSUyQlQ5cXhQdnpZUGNkR1picXJRSW1TJTJGQlZ5Qno3TkNPVGs2YXFydiUyRkhHeW5yMmVhOHNtN1pW',
+    #     'bkng': '11UmFuZG9tSVYkc2RlIyh9Yaa29%2F3xUOLbca8KLfxLPedWG1lygLsik1vDj1Qv%2BUxMqpP9mm%2BWUc7ru67exlvDSuKCoC7%2BV4ClMU2OxocjoMnmlQQgc1gW195upt6nU4RofDd67B1GkrQxFu3KZngr8G2Xi53TECixUEh4TNye4cWdOk%2Fz3o3NHAYPO3YCbIyh8qXicKqM5Gw%3D',
+    #     'aws-waf-token': 'f47b6f13-0805-437b-a9bd-28ed6a3aa5de:BQoAtHWHtzWLAAAA:evoGVCHKGVSY0sc7Dk3JKjckY78fhHHk/IRPccifrWCEn2bipt0Kd2REB8PTDEoscUxPYPEkR3mvPqoZiFGCBuE3dkQ0ljtVXCPcK2rSYflFVWVkSVYrU2/WDGF0ycdiNHzsv9X9GMURnNckv3BT0OuJnNE8MWRIlTHQkyQDOzSP6nksUpB3ubkyHm1BCz9dp1EbBXTFcM9iEiMOxUK6jHimzyGTdRJuoiv7zpZPQoh7puLJUpI9i3nbyj3EGL63Bi4=',
+    #     '_gat': '1'
+    # }
+    
+    # # Convert cookies to a Cookie header string
+    # cookie_str = '; '.join([f'{k}={v}' for k, v in original_cookies.items()])
+    
+    # # Merge headers and cookies
+    # merged_headers = original_headers.copy()
+    # merged_headers['Cookie'] = cookie_str
+    
+    payload = {
+        "zone": "web_unlocker1",
+        "url": final_url,
+        "format": "raw",
     }
     
     retries = 0
@@ -70,64 +87,35 @@ def fetch_html_from_url(final_url):
     
     while retries < max_retries:
         try:
+            # Send POST request to Bright Data API
             response = requests.get(
-                final_url,
-                headers=headers,
-                cookies=cookies,
+                api_url,
+                json=payload,
+                headers=api_headers,
                 timeout=10
             )
-            print("reponse:", response.content)
-            print(response)
+            logger.debug("Bright Data API Response Status Code: %s", response.status_code)
             
             if response.status_code == 202:
-                # If the status code is 202, wait and retry
+                # Retry if API returns 202 (unlikely, but based on original logic)
+                logger.info("Received 202 status. Retrying...")
                 retries += 1
                 time.sleep(retry_delay)
                 continue
             elif response.status_code == 200:
-                # If the status code is 200, proceed with processing the response
-                response.raise_for_status()  # Raise exception for 4xx/5xx status codes
-
-                # Log response headers and raw content for debugging
-                logger.debug("Response Headers: %s", response.headers)
-                logger.debug("Raw Content (first 100 bytes): %s", response.content[:100])
-
-                return response.content  # Return the HTML content
+                # Successfully retrieved content
+                return response.content
             else:
-                # Handle other status codes if needed
+                logger.error("Bright Data API returned unexpected status code: %s", response.status_code)
                 response.raise_for_status()
-
+        
         except requests.exceptions.RequestException as e:
-            logger.error("Request failed: %s", e)
-            break
-
-        # Check the Content-Encoding header to determine decompression method
-        content_encoding = response.headers.get('Content-Encoding', '').lower()
-
-        if content_encoding == 'br':
-            # Decompress Brotli response
-            try:
-                decompressed_data = brotli.decompress(response.content)
-                return decompressed_data.decode('utf-8')  # Decode to string
-            except brotli.error as e:
-                # logger.error("Brotli decompression failed. Attempting fallback methods...")
-                # Fallback: Try decoding as plain text
-                return response.content.decode('utf-8', errors='replace')
-        elif content_encoding == 'gzip':
-            # Decompress gzip response
-            compressed_data = BytesIO(response.content)
-            decompressed_data = gzip.GzipFile(fileobj=compressed_data).read()
-            return decompressed_data.decode('utf-8')  # Decode to string
-        elif content_encoding == 'deflate':
-            # Decompress deflate response
-            import zlib
-            decompressed_data = zlib.decompress(response.content)
-            return decompressed_data.decode('utf-8')  # Decode to string
-        else:
-            # Assume plain text response
-            return response.text
+            logger.error("Bright Data API request failed: %s", e)
+            retries += 1
+            time.sleep(retry_delay)
     
-    return None  # Explicit return on failure
+    logger.error("Max retries reached. Failed to fetch content from Bright Data API.")
+    return None
 
 
 def parse_html_and_extract_results(html):
