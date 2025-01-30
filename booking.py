@@ -1,143 +1,118 @@
 import urllib.parse as urlparse
+import requests
 from requests.exceptions import Timeout, RequestException
 import logging
 from bs4 import BeautifulSoup
 import json
+import gzip
+import zlib
 from io import BytesIO
+import brotli  # Import the Brotli library
 import re
 import time
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
 import random
-from selenium.common.exceptions import TimeoutException
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 
-def fetch_html_from_url(url):
-    """Fetch fully rendered HTML using a fast, headless browser configuration."""
-    chrome_options = Options()
-    
-    # Enable headless mode for speed
-    chrome_options.add_argument("--headless=new")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")  # Remove automation flags
-    chrome_options.add_argument("--disable-infobars")
-    chrome_options.add_argument("--disable-notifications")
-    chrome_options.add_argument("--disable-extensions")
-    chrome_options.add_argument("--disable-logging")
-    chrome_options.add_argument("--log-level=3")
-    chrome_options.add_argument("--disable-popup-blocking")
-    chrome_options.add_argument("--disable-background-networking")
-    chrome_options.add_argument("--disable-background-timer-throttling")
-    chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-    chrome_options.add_argument("--disable-breakpad")
-    chrome_options.add_argument("--disable-client-side-phishing-detection")
-    chrome_options.add_argument("--disable-component-update")
-    chrome_options.add_argument("--disable-default-apps")
-    chrome_options.add_argument("--disable-domain-reliability")
-    chrome_options.add_argument("--disable-renderer-backgrounding")
-    chrome_options.add_argument("--disable-sync")
-    chrome_options.add_argument("--metrics-recording-only")
-    chrome_options.add_argument("--safebrowsing-disable-auto-update")
-    chrome_options.add_argument("--password-store=basic")
-    chrome_options.add_argument("--use-mock-keychain")
-
-    prefs = {
-        'profile.default_content_setting_values': {
-            'javascript': 1,
-            'cookies': 1,
-            'images': 1,  # Enable images
-            'plugins': 1,
-            'popups': 1,
-            'geolocation': 1,
-            'notifications': 1,
-            'auto_select_certificate': 1,
-            'fullscreen': 1,
-            'mouselock': 1,
-            'mixed_script': 1,
-            'media_stream': 1,
-            'media_stream_mic': 1,
-            'media_stream_camera': 1,
-            'protocol_handlers': 1,
-            'ppapi_broker': 1,
-            'automatic_downloads': 1,
-            'midi_sysex': 1,
-            'push_messaging': 1,
-            'ssl_cert_decisions': 1,
-            'metro_switch_to_desktop': 1,
-            'protected_media_identifier': 1,
-            'app_banner': 1,
-            'site_engagement': 1,
-            'durable_storage': 1
-        }
-    }
-    chrome_options.add_experimental_option('prefs', prefs)
-
-    # Rotate user-agent
+def fetch_html_from_url(final_url):
+    """Fetch HTML content with enhanced headers and bot detection bypass."""
+    # Rotate user-agent strings
     user_agents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/120.0",
     ]
-    chrome_options.add_argument(f"user-agent={random.choice(user_agents)}")
 
-    try:
-        # Auto-install ChromeDriver
-        service = Service(ChromeDriverManager().install())
-        
-        # Start browser
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-        
-        # Remove navigator.webdriver flag
-        driver.execute_cdp_cmd(
-            "Page.addScriptToEvaluateOnNewDocument",
-            {
-                "source": """
-                    Object.defineProperty(navigator, 'webdriver', {
-                        get: () => undefined
-                    });
-                """
-            },
-        )
+    # Enhanced headers to mimic a real browser
+    headers = {
+        'User-Agent': random.choice(user_agents),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Referer': 'https://www.google.com/',  # Simulate coming from a search engine
+        'DNT': '1',  # Do Not Track
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-User': '?1',
+        'Sec-Fetch-Dest': 'document',
+    }
 
-        # Fetch the page
-        driver.set_page_load_timeout(15)  # Set a reasonable timeout
-        driver.get(url)
+    # Use a session to persist cookies
+    session = requests.Session()
+    session.headers.update(headers)
 
-        # Wait for the page to load (minimal wait for critical content)
+    retries = 0
+    max_retries = 5
+    base_delay = 1  # Start with 1 second delay
+
+    while retries < max_retries:
         try:
-            WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((By.XPATH, '//div[@data-testid="property-card"]'))
+            # Add a random delay between retries
+            time.sleep(base_delay * (2 ** retries) + random.uniform(0, 1))
+
+            response = session.get(
+                final_url,
+                timeout=10  # Total timeout (connect + read) in seconds
             )
-        except TimeoutException:
-            logger.debug("No property cards found, returning available HTML")
+            logger.debug(f"Attempt {retries + 1}: Status {response.status_code} for {final_url}")
 
-        # Get the page source (HTML)
-        html_content = driver.page_source
+            if response.status_code == 202:
+                # If the status code is 202, wait and retry
+                retries += 1
+                continue
+            elif response.status_code == 200:
+                # If the status code is 200, proceed with processing the response
+                response.raise_for_status()  # Raise exception for 4xx/5xx status codes
 
-        # Close the browser
-        driver.quit()
+                # Log response headers and raw content for debugging
+                logger.debug("Response Headers: %s", response.headers)
+                logger.debug("Raw Content (first 100 bytes): %s", response.content[:100])
 
-        return html_content
+                # Handle decompression
+                content_encoding = response.headers.get('Content-Encoding', '').lower()
+                content = response.content
 
-    except Exception as e:
-        logger.error(f"Selenium error: {str(e)}")
-        if 'driver' in locals():
-            driver.quit()
-        return None
+                if content_encoding == 'br':
+                    try:
+                        content = brotli.decompress(content)
+                    except Exception as e:
+                        logger.warning(f"Brotli decompression failed: {str(e)}")
+                elif content_encoding == 'gzip':
+                    try:
+                        content = gzip.decompress(content)
+                    except Exception as e:
+                        logger.warning(f"Gzip decompression failed: {str(e)}")
+                elif content_encoding == 'deflate':
+                    try:
+                        content = zlib.decompress(content)
+                    except Exception as e:
+                        logger.warning(f"Deflate decompression failed: {str(e)}")
 
+                return content.decode('utf-8', errors='replace')
 
+            else:
+                # Handle other status codes if needed
+                response.raise_for_status()
 
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"HTTP Error ({e.response.status_code}): {str(e)}")
+            if e.response.status_code == 403:
+                logger.error("Cloudflare/WAF detected. Consider using proxies.")
+                break
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request failed: {str(e)}")
+        
+        retries += 1
+
+    logger.error(f"Failed to fetch URL after {max_retries} attempts: {final_url}")
+    return None
 
 
 def parse_html_and_extract_results(html):
@@ -242,7 +217,6 @@ def find_results_in_json(data):
     
     # Return None if "results" is not found
     return None
-
 
 
 def find_link_with_listing_id(html, listing_id):
@@ -372,7 +346,6 @@ def run_booking_bot(filters):
         # Step 2: Parse HTML and extract results
         if html:
             listings = parse_html_and_extract_results(html)
-            # print(listings)
             
         
          # Find best options
