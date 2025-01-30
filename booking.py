@@ -27,43 +27,61 @@ def fetch_html_from_url(url):
                 "--single-process",
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage"
+                "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled",
+                "--disable-infobars",
+                "--no-first-run",
+                "--no-service-autorun",
+                "--disable-extensions"
             ]
         )
-        page = browser.new_page()
         
-        # Set user-agent and headers to bypass bot detection
-        page.set_extra_http_headers({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            "Accept-Language": "en-US,en;q=0.9"
-        })
-        
-        page.evaluate("navigator.webdriver = false")
-        
-        # Block unnecessary resources (40% faster page loads)
-        page.route('**/*', lambda route: route.abort()
-            if route.request.resource_type in {'image', 'font', 'stylesheet', 'media'}
-            else route.continue_()
+        # Create context with stealth parameters
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            viewport={"width": 1920, "height": 1080},
+            java_script_enabled=True,
+            ignore_https_errors=True
         )
+        page = context.new_page()
         
+        # Critical stealth overrides
+        page.add_init_script("""
+            delete Object.getPrototypeOf(navigator).webdriver;
+            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3]});
+            window.chrome = {app: {isInstalled: false}};
+        """)
+        
+        # Aggressive resource blocking
+        def block_resources(route):
+            if route.request.resource_type in {'image', 'font', 'stylesheet', 'media', 'websocket', 'other'}:
+                route.abort()
+            else:
+                route.continue_()
+        
+        page.route("**/*", block_resources)
+
         try:
-            page.goto(url, wait_until="commit", timeout=100000)  # Fastest reliable event
+            # Fast navigation with hybrid waiting
+            page.goto(url, wait_until="domcontentloaded", timeout=4500)
             
-            # Wait for the page to load (minimal wait for critical content)
+            # Immediate content extraction with fallback
             try:
-                page.wait_for_selector('//div[@data-testid="property-card"]', timeout=50000)
-            except Exception:
-                logger.debug("No property cards found, returning available HTML")
-            
-            html_content = page.content()
-            
-            # Write the content to output.txt
-            with open('output.txt', 'w', encoding='utf-8') as f:
-                f.write(html_content)
-                
-            return html_content
+                return page.content()
+            except Exception as e:
+                logger.warning(f"Content extraction failed: {str(e)}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Navigation failed: {str(e)}")
+            return None
         finally:
-            browser.close()
+            # Force cleanup without delays
+            try:
+                context.close()
+                browser.close()
+            except Exception:
+                pass
 
 
 
