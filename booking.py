@@ -11,6 +11,7 @@ import brotli  # Import the Brotli library
 import re
 import time
 import random
+from curl_cffi import requests as cffi_requests
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -35,8 +36,8 @@ def fetch_html_from_url(final_url):
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept-Encoding': 'gzip, deflate, br',
         'Connection': 'keep-alive',
-        'Referer': 'https://www.google.com/',  # Simulate coming from a search engine
-        'DNT': '1',  # Do Not Track
+        'Referer': 'https://www.google.com/',
+        'DNT': '1',
         'Upgrade-Insecure-Requests': '1',
         'Sec-Fetch-Site': 'none',
         'Sec-Fetch-Mode': 'navigate',
@@ -44,23 +45,33 @@ def fetch_html_from_url(final_url):
         'Sec-Fetch-Dest': 'document',
     }
 
+    headers.update({
+        'Sec-CH-UA': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'Sec-CH-UA-Mobile': '?0',
+        'Sec-CH-UA-Platform': '"Windows"',
+        'Pragma': 'no-cache',
+        'Cache-Control': 'no-cache',
+    })
+
     # Use a session to persist cookies
     session = requests.Session()
     session.headers.update(headers)
 
     retries = 0
-    max_retries = 5
+    max_retries = 2
     base_delay = 1  # Start with 1 second delay
 
     while retries < max_retries:
         try:
             # Add a random delay between retries
-            time.sleep(base_delay * (2 ** retries) + random.uniform(0, 1))
+            # time.sleep(base_delay * (2 ** retries) + random.uniform(0, 1))
 
-            response = session.get(
-                final_url,
-                timeout=10  # Total timeout (connect + read) in seconds
-            )
+            
+            response = cffi_requests.get(final_url, impersonate="chrome120")
+            # response = session.get(
+            #     final_url,
+            #     timeout=10  # Total timeout (connect + read) in seconds
+            # )
             logger.debug(f"Attempt {retries + 1}: Status {response.status_code} for {final_url}")
 
             if response.status_code == 202:
