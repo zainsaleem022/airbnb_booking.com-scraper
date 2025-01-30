@@ -10,112 +10,96 @@ from io import BytesIO
 import brotli  # Import the Brotli library
 import re
 import time
-import random
-import httpx
-
+from fake_useragent import UserAgent  # Randomized user agents
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
-
 def fetch_html_from_url(final_url):
-    """Fetch HTML content with enhanced headers and bot detection bypass using HTTPX."""
-    # Rotate user-agent strings
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/120.0",
-    ]
-
-    # Enhanced headers to mimic a real browser
+    """Fetch HTML content from the final URL with Brotli and gzip decompression support."""
+    
+    # Use a session to persist headers & cookies
+    session = requests.Session()
+    
+    
+     # Randomized User-Agent
+    ua = UserAgent()
+    
     headers = {
-        'User-Agent': random.choice(user_agents),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+        'User-Agent': ua.random,  # Random user agent
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Referer': 'https://www.google.com/',
-        'DNT': '1',
+        'Referer': 'https://www.google.com/',  # Spoof referrer
+        'DNT': '1',  # Do Not Track
         'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-User': '?1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-CH-UA': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-        'Sec-CH-UA-Mobile': '?0',
-        'Sec-CH-UA-Platform': '"Windows"',
-        'Pragma': 'no-cache',
-        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
     }
-
-    # Configure client with default settings
-    client_settings = {
-        "follow_redirects": True,
-        "timeout": 10.0,
-        "verify": True,
-    }
-
+    
     retries = 0
     max_retries = 2
-
-    # Using context manager to ensure proper client cleanup
-    with httpx.Client(**client_settings) as client:
-        client.headers.update(headers)
-        
-        while retries < max_retries:
-            try:
-                response = client.get(final_url)
-                logger.debug(f"Attempt {retries + 1}: Status {response.status_code} for {final_url}")
-
-                if response.status_code == 202:
-                    # If the status code is 202, wait and retry
-                    retries += 1
-                    continue
-                elif response.status_code == 200:
-                    # Log response headers and raw content for debugging
-                    logger.debug("Response Headers: %s", response.headers)
-                    logger.debug("Raw Content (first 100 bytes): %s", response.content[:100])
-
-                    # Handle decompression
-                    content_encoding = response.headers.get('Content-Encoding', '').lower()
-                    content = response.content
-
-                    if content_encoding == 'br':
-                        try:
-                            content = brotli.decompress(content)
-                        except Exception as e:
-                            logger.warning(f"Brotli decompression failed: {str(e)}")
-                    elif content_encoding == 'gzip':
-                        try:
-                            content = gzip.decompress(content)
-                        except Exception as e:
-                            logger.warning(f"Gzip decompression failed: {str(e)}")
-                    elif content_encoding == 'deflate':
-                        try:
-                            content = zlib.decompress(content)
-                        except Exception as e:
-                            logger.warning(f"Deflate decompression failed: {str(e)}")
-
-                    return content.decode('utf-8', errors='replace')
-                else:
-                    # Handle other status codes
-                    response.raise_for_status()
-
-            except httpx.HTTPStatusError as e:
-                logger.error(f"HTTP Error ({e.response.status_code}): {str(e)}")
-                if e.response.status_code == 403:
-                    logger.error("Cloudflare/WAF detected. Consider using proxies.")
-                    break
-            except httpx.RequestError as e:
-                logger.error(f"Request failed: {str(e)}")
+    retry_delay = 1
+    
+    while retries < max_retries:
+        try:
+            response = session.get(
+                final_url,
+                headers=headers,
+                timeout=10,
+                allow_redirects=True
+            )
+            print(response)
             
-            retries += 1
+            if response.status_code == 202:
+                # If the status code is 202, wait and retry
+                retries += 1
+                time.sleep(retry_delay)
+                continue
+            elif response.status_code == 200:
+                # If the status code is 200, proceed with processing the response
+                response.raise_for_status()  # Raise exception for 4xx/5xx status codes
 
-        logger.error(f"Failed to fetch URL after {max_retries} attempts: {final_url}")
-        return None
+                # Log response headers and raw content for debugging
+                logger.debug("Response Headers: %s", response.headers)
+                logger.debug("Raw Content (first 100 bytes): %s", response.content[:100])
+
+                return response.content  # Return the HTML content
+            else:
+                # Handle other status codes if needed
+                response.raise_for_status()
+
+        except requests.exceptions.RequestException as e:
+            logger.error("Request failed: %s", e)
+            break
+
+        # Check the Content-Encoding header to determine decompression method
+        content_encoding = response.headers.get('Content-Encoding', '').lower()
+
+        if content_encoding == 'br':
+            # Decompress Brotli response
+            try:
+                decompressed_data = brotli.decompress(response.content)
+                return decompressed_data.decode('utf-8')  # Decode to string
+            except brotli.error as e:
+                # logger.error("Brotli decompression failed. Attempting fallback methods...")
+                # Fallback: Try decoding as plain text
+                return response.content.decode('utf-8', errors='replace')
+        elif content_encoding == 'gzip':
+            # Decompress gzip response
+            compressed_data = BytesIO(response.content)
+            decompressed_data = gzip.GzipFile(fileobj=compressed_data).read()
+            return decompressed_data.decode('utf-8')  # Decode to string
+        elif content_encoding == 'deflate':
+            # Decompress deflate response
+            import zlib
+            decompressed_data = zlib.decompress(response.content)
+            return decompressed_data.decode('utf-8')  # Decode to string
+        else:
+            # Assume plain text response
+            return response.text
+    
+    return None  # Explicit return on failure
 
 
 def parse_html_and_extract_results(html):
@@ -220,6 +204,8 @@ def find_results_in_json(data):
     
     # Return None if "results" is not found
     return None
+
+
 
 
 def find_link_with_listing_id(html, listing_id):
