@@ -76,6 +76,7 @@ def fetch_html_from_url(final_url):
                 cookies=cookies,
                 timeout=10
             )
+            print("reponse:", response.content)
             print(response)
             
             if response.status_code == 202:
