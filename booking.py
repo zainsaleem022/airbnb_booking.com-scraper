@@ -10,96 +10,59 @@ from io import BytesIO
 import brotli  # Import the Brotli library
 import re
 import time
-from fake_useragent import UserAgent  # Randomized user agents
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+import random
+from playwright.sync_api import sync_playwright
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def fetch_html_from_url(final_url):
-    """Fetch HTML content from the final URL with Brotli and gzip decompression support."""
+
+
+def fetch_html_from_url(url):
+    logging.basicConfig(level=logging.DEBUG)
+    logger = logging.getLogger(__name__)
     
-    # Use a session to persist headers & cookies
-    session = requests.Session()
-    
-    
-     # Randomized User-Agent
-    ua = UserAgent()
-    
-    headers = {
-        'User-Agent': ua.random,  # Random user agent
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Referer': 'https://www.google.com/',  # Spoof referrer
-        'DNT': '1',  # Do Not Track
-        'Upgrade-Insecure-Requests': '1',
-        'Connection': 'keep-alive',
-    }
-    
-    retries = 0
-    max_retries = 2
-    retry_delay = 1
-    
-    while retries < max_retries:
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--single-process",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage"
+            ]
+        )
+        page = browser.new_page()
+        
+        # Set user-agent and headers to bypass bot detection
+        page.set_extra_http_headers({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9"
+        })
+        
+        page.evaluate("navigator.webdriver = false")
+        
+        # Block unnecessary resources (40% faster page loads)
+        page.route('**/*', lambda route: route.abort()
+            if route.request.resource_type in {'image', 'font', 'stylesheet', 'media'}
+            else route.continue_()
+        )
+        
         try:
-            response = session.get(
-                final_url,
-                headers=headers,
-                timeout=10,
-                allow_redirects=True
-            )
-            print(response)
+            page.goto(url, wait_until="commit", timeout=10000)  # Fastest reliable event
             
-            if response.status_code == 202:
-                # If the status code is 202, wait and retry
-                retries += 1
-                time.sleep(retry_delay)
-                continue
-            elif response.status_code == 200:
-                # If the status code is 200, proceed with processing the response
-                response.raise_for_status()  # Raise exception for 4xx/5xx status codes
-
-                # Log response headers and raw content for debugging
-                logger.debug("Response Headers: %s", response.headers)
-                logger.debug("Raw Content (first 100 bytes): %s", response.content[:100])
-
-                return response.content  # Return the HTML content
-            else:
-                # Handle other status codes if needed
-                response.raise_for_status()
-
-        except requests.exceptions.RequestException as e:
-            logger.error("Request failed: %s", e)
-            break
-
-        # Check the Content-Encoding header to determine decompression method
-        content_encoding = response.headers.get('Content-Encoding', '').lower()
-
-        if content_encoding == 'br':
-            # Decompress Brotli response
+            # Wait for the page to load (minimal wait for critical content)
             try:
-                decompressed_data = brotli.decompress(response.content)
-                return decompressed_data.decode('utf-8')  # Decode to string
-            except brotli.error as e:
-                # logger.error("Brotli decompression failed. Attempting fallback methods...")
-                # Fallback: Try decoding as plain text
-                return response.content.decode('utf-8', errors='replace')
-        elif content_encoding == 'gzip':
-            # Decompress gzip response
-            compressed_data = BytesIO(response.content)
-            decompressed_data = gzip.GzipFile(fileobj=compressed_data).read()
-            return decompressed_data.decode('utf-8')  # Decode to string
-        elif content_encoding == 'deflate':
-            # Decompress deflate response
-            import zlib
-            decompressed_data = zlib.decompress(response.content)
-            return decompressed_data.decode('utf-8')  # Decode to string
-        else:
-            # Assume plain text response
-            return response.text
-    
-    return None  # Explicit return on failure
+                page.wait_for_selector('//div[@data-testid="property-card"]', timeout=5000)
+            except Exception:
+                logger.debug("No property cards found, returning available HTML")
+            
+            html_content = page.content()
+                
+            return html_content
+        finally:
+            browser.close()
+
 
 
 def parse_html_and_extract_results(html):
@@ -204,8 +167,6 @@ def find_results_in_json(data):
     
     # Return None if "results" is not found
     return None
-
-
 
 
 def find_link_with_listing_id(html, listing_id):
