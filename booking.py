@@ -11,7 +11,7 @@ import brotli  # Import the Brotli library
 import re
 import time
 import random
-from curl_cffi import requests as cffi_requests
+import cloudscraper
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -66,8 +66,8 @@ def fetch_html_from_url(final_url):
             # Add a random delay between retries
             # time.sleep(base_delay * (2 ** retries) + random.uniform(0, 1))
 
-            
-            response = cffi_requests.get(final_url, impersonate="chrome120")
+            scraper = cloudscraper.create_scraper()
+            response = scraper.get(final_url)
             # response = session.get(
             #     final_url,
             #     timeout=10  # Total timeout (connect + read) in seconds
