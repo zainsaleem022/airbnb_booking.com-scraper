@@ -11,7 +11,8 @@ import brotli  # Import the Brotli library
 import re
 import time
 import random
-import cloudscraper
+import httpx
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def fetch_html_from_url(final_url):
-    """Fetch HTML content with enhanced headers and bot detection bypass."""
+    """Fetch HTML content with enhanced headers and bot detection bypass using HTTPX."""
     # Rotate user-agent strings
     user_agents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -43,87 +44,78 @@ def fetch_html_from_url(final_url):
         'Sec-Fetch-Mode': 'navigate',
         'Sec-Fetch-User': '?1',
         'Sec-Fetch-Dest': 'document',
-    }
-
-    headers.update({
         'Sec-CH-UA': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
         'Sec-CH-UA-Mobile': '?0',
         'Sec-CH-UA-Platform': '"Windows"',
         'Pragma': 'no-cache',
         'Cache-Control': 'no-cache',
-    })
+    }
 
-    # Use a session to persist cookies
-    session = requests.Session()
-    session.headers.update(headers)
+    # Configure client with default settings
+    client_settings = {
+        "follow_redirects": True,
+        "timeout": 10.0,
+        "verify": True,
+    }
 
     retries = 0
     max_retries = 2
-    base_delay = 1  # Start with 1 second delay
 
-    while retries < max_retries:
-        try:
-            # Add a random delay between retries
-            # time.sleep(base_delay * (2 ** retries) + random.uniform(0, 1))
-
-            scraper = cloudscraper.create_scraper()
-            response = scraper.get(final_url)
-            # response = session.get(
-            #     final_url,
-            #     timeout=10  # Total timeout (connect + read) in seconds
-            # )
-            logger.debug(f"Attempt {retries + 1}: Status {response.status_code} for {final_url}")
-
-            if response.status_code == 202:
-                # If the status code is 202, wait and retry
-                retries += 1
-                continue
-            elif response.status_code == 200:
-                # If the status code is 200, proceed with processing the response
-                response.raise_for_status()  # Raise exception for 4xx/5xx status codes
-
-                # Log response headers and raw content for debugging
-                logger.debug("Response Headers: %s", response.headers)
-                logger.debug("Raw Content (first 100 bytes): %s", response.content[:100])
-
-                # Handle decompression
-                content_encoding = response.headers.get('Content-Encoding', '').lower()
-                content = response.content
-
-                if content_encoding == 'br':
-                    try:
-                        content = brotli.decompress(content)
-                    except Exception as e:
-                        logger.warning(f"Brotli decompression failed: {str(e)}")
-                elif content_encoding == 'gzip':
-                    try:
-                        content = gzip.decompress(content)
-                    except Exception as e:
-                        logger.warning(f"Gzip decompression failed: {str(e)}")
-                elif content_encoding == 'deflate':
-                    try:
-                        content = zlib.decompress(content)
-                    except Exception as e:
-                        logger.warning(f"Deflate decompression failed: {str(e)}")
-
-                return content.decode('utf-8', errors='replace')
-
-            else:
-                # Handle other status codes if needed
-                response.raise_for_status()
-
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP Error ({e.response.status_code}): {str(e)}")
-            if e.response.status_code == 403:
-                logger.error("Cloudflare/WAF detected. Consider using proxies.")
-                break
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Request failed: {str(e)}")
+    # Using context manager to ensure proper client cleanup
+    with httpx.Client(**client_settings) as client:
+        client.headers.update(headers)
         
-        retries += 1
+        while retries < max_retries:
+            try:
+                response = client.get(final_url)
+                logger.debug(f"Attempt {retries + 1}: Status {response.status_code} for {final_url}")
 
-    logger.error(f"Failed to fetch URL after {max_retries} attempts: {final_url}")
-    return None
+                if response.status_code == 202:
+                    # If the status code is 202, wait and retry
+                    retries += 1
+                    continue
+                elif response.status_code == 200:
+                    # Log response headers and raw content for debugging
+                    logger.debug("Response Headers: %s", response.headers)
+                    logger.debug("Raw Content (first 100 bytes): %s", response.content[:100])
+
+                    # Handle decompression
+                    content_encoding = response.headers.get('Content-Encoding', '').lower()
+                    content = response.content
+
+                    if content_encoding == 'br':
+                        try:
+                            content = brotli.decompress(content)
+                        except Exception as e:
+                            logger.warning(f"Brotli decompression failed: {str(e)}")
+                    elif content_encoding == 'gzip':
+                        try:
+                            content = gzip.decompress(content)
+                        except Exception as e:
+                            logger.warning(f"Gzip decompression failed: {str(e)}")
+                    elif content_encoding == 'deflate':
+                        try:
+                            content = zlib.decompress(content)
+                        except Exception as e:
+                            logger.warning(f"Deflate decompression failed: {str(e)}")
+
+                    return content.decode('utf-8', errors='replace')
+                else:
+                    # Handle other status codes
+                    response.raise_for_status()
+
+            except httpx.HTTPStatusError as e:
+                logger.error(f"HTTP Error ({e.response.status_code}): {str(e)}")
+                if e.response.status_code == 403:
+                    logger.error("Cloudflare/WAF detected. Consider using proxies.")
+                    break
+            except httpx.RequestError as e:
+                logger.error(f"Request failed: {str(e)}")
+            
+            retries += 1
+
+        logger.error(f"Failed to fetch URL after {max_retries} attempts: {final_url}")
+        return None
 
 
 def parse_html_and_extract_results(html):
