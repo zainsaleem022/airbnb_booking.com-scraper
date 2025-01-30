@@ -67,6 +67,7 @@ def fetch_html_from_url(url):
             
             # Immediate content extraction with fallback
             try:
+                print(page.content())
                 return page.content()
             except Exception as e:
                 logger.warning(f"Content extraction failed: {str(e)}")
