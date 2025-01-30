@@ -5,96 +5,128 @@ import logging
 from bs4 import BeautifulSoup
 import json
 import gzip
-import zlib
 from io import BytesIO
 import brotli  # Import the Brotli library
 import re
 import time
-import random
-from playwright.sync_api import sync_playwright
+from urllib.parse import quote
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
-
-def fetch_html_from_url(url):
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+def fetch_html_from_url(final_url):
+    """Fetch HTML content from the final URL with Brotli and gzip decompression support."""
     
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--single-process",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-infobars",
-                "--no-default-browser-check",
-                "--disable-component-extensions-with-background-pages"
-            ]
-        )
+    # Use a session to persist headers & cookies
+    session = requests.Session()
 
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            java_script_enabled=True,  # Critical for WAF challenges
-            bypass_csp=True,
-            viewport={"width": 1920, "height": 1080}
-        )
-
-        page = context.new_page()
-
-        # Essential stealth overrides for AWS WAF
-        page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined,
-                configurable: true
-            });
-            window.navigator.chrome = {
-                app: undefined,
-                webstore: undefined,
-                runtime: undefined
-            };
-            Object.defineProperty(document, 'hidden', { value: false });
-            Object.defineProperty(document, 'visibilityState', { value: 'visible' });
-        """)
-
-        # Allow essential resources for WAF challenge
-        def resource_filter(route):
-            blocked = ['image', 'font', 'stylesheet', 'media']
-            if route.request.resource_type in blocked:
-                route.abort()
-            else:
-                route.continue_()
-
-        page.route("**/*", resource_filter)
-
+    
+    headers = {
+        "authority": "www.booking.com",
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "en-US,en;q=0.9",
+        "cache-control": "max-age=0",
+        "priority": "u=0, i",
+        "sec-ch-ua": '"Not A(Brand";v="8", "Chromium";v="132", "Google Chrome";v="132"',
+        "sec-ch-ua-mobile": "?1",
+        "sec-ch-ua-platform": '"Android"',
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-user": "?1",
+        "upgrade-insecure-requests": "1",
+        "user-agent": "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36"
+    }
+    
+    cookies = {
+        'pcm_personalization_disabled': '0',
+        'bkng_sso_auth': 'CAIQsOnuTRpmKeQxi6MaBR7/5Y10VoWzhVrcH7OR92NSZHHNpyr/u0gc1XWKOekh9bOJFFOIlxmGvvnqYNMzTlrumrgJujct2yU+WXc/HuCOUJgIr/7Uvu0f8UwiV+ngT8vcR3o5YeFrZiSxjNRf',
+        'pcm_consent': 'analytical%3Dtrue%26countryCode%3DPK%26consentId%3Dbfb591aa-6278-420a-9ad3-85e5b520f410%26consentedAt%3D2025-01-30T19%3A24%3A57.551Z%26expiresAt%3D2025-07-29T19%3A24%3A57.551Z%26implicit%3Dtrue%26marketing%3Dtrue%26regionCode%3DIS%26regulation%3Dnone%26legacyRegulation%3Dnone',
+        '_ga_A12345': 'GS1.1.1738264271.13.1.1738265098.0.0.153265832',
+        '_ga_SEJWFCBCVM': 'GS1.1.1738264271.11.1.1738265098.60.0.0',
+        'lastSeen': '1738265098390',
+        'FPID': 'FPID2.2.Tq5tlTqSyoXtGc9QUng0XA5FfFGw6RDhwNyOR8hhXKM%3D.1737617103',
+        'FPLC': 'QDhVOlEV1u8iqqw%2FUjcgFWXXxgBVReO%2BgaoaFBkeDknbcJ%2Fo06y84HnUHMeZ%2Brwi4bcdZE6wOCv72XRacUkBJGuRZ%2FrEZ0XcRHZCInOYM%2Fgdn3Agz85NV6Gy%2BPy4FA%3D%3D',
+        'cors_js': '1',
+        'OptanonConsent': f'isGpcEnabled=0&datestamp=Fri+Jan+31+2025+00%3A24%3A58+GMT%2B0500+(Pakistan+Standard+Time)&version=202403.2.0&browserGpcFlag=0&isIABGlobal=false&hosts=&consentId=f68af335-eb79-4357-b9cf-16807686c9d8&interactionCount=0&isAnonUser=1&landingPath={quote(final_url)}',
+        'bkng_prue': '1',
+        'cgumid': '0eY4oOE3SZ9jJ7fNnQVdI4-qegdbxmgF',
+        'bkng_sso_session': 'e30',
+        'bkng_sso_ses': 'e30',
+        'AMP_TOKEN': '%24NOT_FOUND',
+        '_ga': 'GA1.2.828592122.1738265101',
+        '_gid': 'GA1.2.2013143855.1738265102',
+        '_pin_unauth': 'dWlkPVpXUXhOV0V5WWpZdFlqQXpNQzAwT0Rnd0xXSmpNR010Wmpkak5UbGtOR0UyWVdVMg',
+        'cto_bundle': 'tQoHiV94WFNzQlQ3MzQxU1hmOWFFdHJVZ0NnVUplTmRJOENOMnY2QWtLNTJZTllHdSUyRng3aGFxNm9ZVzlYdWhORGRaYTAlMkZsM3N6MjVOJTJGdVN4cmxTMTl0NW5YZGZtNiUyQlFBZEFTJTJCbzRUUVVhdnFtNm1CeElNdVpQZUZlZ1VNQjRvJTJGQ1FTTkdyYjFEUGR5RVoxbHpmcktuJTJCOEY5Q0tSTGtiRlY5cWNjRHpDenhEJTJCbFB0ZCUyQmhtaGRHY2swMDlwOUhIMDd3OENGYmJZcmd0dnI3RSUyQlQ5cXhQdnpZUGNkR1picXJRSW1TJTJGQlZ5Qno3TkNPVGs2YXFydiUyRkhHeW5yMmVhOHNtN1pW',
+        'bkng': '11UmFuZG9tSVYkc2RlIyh9Yaa29%2F3xUOLbca8KLfxLPedWG1lygLsik1vDj1Qv%2BUxMqpP9mm%2BWUc7ru67exlvDSuKCoC7%2BV4ClMU2OxocjoMnmlQQgc1gW195upt6nU4RofDd67B1GkrQxFu3KZngr8G2Xi53TECixUEh4TNye4cWdOk%2Fz3o3NHAYPO3YCbIyh8qXicKqM5Gw%3D',
+        'aws-waf-token': 'f47b6f13-0805-437b-a9bd-28ed6a3aa5de:BQoAtHWHtzWLAAAA:evoGVCHKGVSY0sc7Dk3JKjckY78fhHHk/IRPccifrWCEn2bipt0Kd2REB8PTDEoscUxPYPEkR3mvPqoZiFGCBuE3dkQ0ljtVXCPcK2rSYflFVWVkSVYrU2/WDGF0ycdiNHzsv9X9GMURnNckv3BT0OuJnNE8MWRIlTHQkyQDOzSP6nksUpB3ubkyHm1BCz9dp1EbBXTFcM9iEiMOxUK6jHimzyGTdRJuoiv7zpZPQoh7puLJUpI9i3nbyj3EGL63Bi4=',
+        '_gat': '1'
+    }
+    
+    retries = 0
+    max_retries = 2
+    retry_delay = 1
+    
+    while retries < max_retries:
         try:
-            # Strategic navigation sequence
-            page.goto(url, wait_until="domcontentloaded", timeout=4500)
+            response = requests.get(
+                final_url,
+                headers=headers,
+                cookies=cookies,
+                timeout=10
+            )
+            print(response)
             
-            # Critical: Handle challenge redirection
-            try:
-                page.wait_for_function("""() => 
-                    !document.querySelector('#challenge-container') && 
-                    document.readyState === 'complete'
-                """, timeout=4000)
-            except Exception:
-                logger.warning("Challenge resolution timeout - returning raw content")
-            
-            return page.content()
-            
-        except Exception as e:
-            logger.error(f"Navigation failed: {str(e)}")
-            return None
-        finally:
-            try:
-                context.close()
-                browser.close()
-            except Exception:
-                pass
+            if response.status_code == 202:
+                # If the status code is 202, wait and retry
+                retries += 1
+                time.sleep(retry_delay)
+                continue
+            elif response.status_code == 200:
+                # If the status code is 200, proceed with processing the response
+                response.raise_for_status()  # Raise exception for 4xx/5xx status codes
 
+                # Log response headers and raw content for debugging
+                logger.debug("Response Headers: %s", response.headers)
+                logger.debug("Raw Content (first 100 bytes): %s", response.content[:100])
+
+                return response.content  # Return the HTML content
+            else:
+                # Handle other status codes if needed
+                response.raise_for_status()
+
+        except requests.exceptions.RequestException as e:
+            logger.error("Request failed: %s", e)
+            break
+
+        # Check the Content-Encoding header to determine decompression method
+        content_encoding = response.headers.get('Content-Encoding', '').lower()
+
+        if content_encoding == 'br':
+            # Decompress Brotli response
+            try:
+                decompressed_data = brotli.decompress(response.content)
+                return decompressed_data.decode('utf-8')  # Decode to string
+            except brotli.error as e:
+                # logger.error("Brotli decompression failed. Attempting fallback methods...")
+                # Fallback: Try decoding as plain text
+                return response.content.decode('utf-8', errors='replace')
+        elif content_encoding == 'gzip':
+            # Decompress gzip response
+            compressed_data = BytesIO(response.content)
+            decompressed_data = gzip.GzipFile(fileobj=compressed_data).read()
+            return decompressed_data.decode('utf-8')  # Decode to string
+        elif content_encoding == 'deflate':
+            # Decompress deflate response
+            import zlib
+            decompressed_data = zlib.decompress(response.content)
+            return decompressed_data.decode('utf-8')  # Decode to string
+        else:
+            # Assume plain text response
+            return response.text
+    
+    return None  # Explicit return on failure
 
 
 def parse_html_and_extract_results(html):
@@ -199,6 +231,8 @@ def find_results_in_json(data):
     
     # Return None if "results" is not found
     return None
+
+
 
 
 def find_link_with_listing_id(html, listing_id):
