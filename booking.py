@@ -19,65 +19,76 @@ logger = logging.getLogger(__name__)
 
 
 def fetch_html_from_url(url):
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
     
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
             args=[
-                "--single-process",
                 "--no-sandbox",
-                "--disable-setuid-sandbox",
+                "--single-process",
                 "--disable-dev-shm-usage",
                 "--disable-blink-features=AutomationControlled",
                 "--disable-infobars",
-                "--no-first-run",
-                "--no-service-autorun",
-                "--disable-extensions"
+                "--no-default-browser-check",
+                "--disable-component-extensions-with-background-pages"
             ]
         )
-        
-        # Create context with stealth parameters
+
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1920, "height": 1080},
-            java_script_enabled=True,
-            ignore_https_errors=True
+            java_script_enabled=True,  # Critical for WAF challenges
+            bypass_csp=True,
+            viewport={"width": 1920, "height": 1080}
         )
+
         page = context.new_page()
-        
-        # Critical stealth overrides
+
+        # Essential stealth overrides for AWS WAF
         page.add_init_script("""
-            delete Object.getPrototypeOf(navigator).webdriver;
-            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3]});
-            window.chrome = {app: {isInstalled: false}};
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined,
+                configurable: true
+            });
+            window.navigator.chrome = {
+                app: undefined,
+                webstore: undefined,
+                runtime: undefined
+            };
+            Object.defineProperty(document, 'hidden', { value: false });
+            Object.defineProperty(document, 'visibilityState', { value: 'visible' });
         """)
-        
-        # Aggressive resource blocking
-        def block_resources(route):
-            if route.request.resource_type in {'image', 'font', 'stylesheet', 'media', 'websocket', 'other'}:
+
+        # Allow essential resources for WAF challenge
+        def resource_filter(route):
+            blocked = ['image', 'font', 'stylesheet', 'media']
+            if route.request.resource_type in blocked:
                 route.abort()
             else:
                 route.continue_()
-        
-        page.route("**/*", block_resources)
+
+        page.route("**/*", resource_filter)
 
         try:
-            # Fast navigation with hybrid waiting
+            # Strategic navigation sequence
             page.goto(url, wait_until="domcontentloaded", timeout=4500)
             
-            # Immediate content extraction with fallback
+            # Critical: Handle challenge redirection
             try:
-                print(page.content())
-                return page.content()
-            except Exception as e:
-                logger.warning(f"Content extraction failed: {str(e)}")
-                return None
-
+                page.wait_for_function("""() => 
+                    !document.querySelector('#challenge-container') && 
+                    document.readyState === 'complete'
+                """, timeout=4000)
+            except Exception:
+                logger.warning("Challenge resolution timeout - returning raw content")
+            
+            return page.content()
+            
         except Exception as e:
             logger.error(f"Navigation failed: {str(e)}")
             return None
         finally:
-            # Force cleanup without delays
             try:
                 context.close()
                 browser.close()
