@@ -19,8 +19,6 @@ logger = logging.getLogger(__name__)
 
 
 def fetch_html_from_url(url):
-    logging.basicConfig(level=logging.DEBUG)
-    logger = logging.getLogger(__name__)
     
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -49,15 +47,19 @@ def fetch_html_from_url(url):
         )
         
         try:
-            page.goto(url, wait_until="commit", timeout=10000)  # Fastest reliable event
+            page.goto(url, wait_until="commit", timeout=100000)  # Fastest reliable event
             
             # Wait for the page to load (minimal wait for critical content)
             try:
-                page.wait_for_selector('//div[@data-testid="property-card"]', timeout=5000)
+                page.wait_for_selector('//div[@data-testid="property-card"]', timeout=50000)
             except Exception:
                 logger.debug("No property cards found, returning available HTML")
             
             html_content = page.content()
+            
+            # Write the content to output.txt
+            with open('output.txt', 'w', encoding='utf-8') as f:
+                f.write(html_content)
                 
             return html_content
         finally:
