@@ -48,24 +48,16 @@ def parse_html_and_extract_results(html):
     
     # Find all script tags
     for script in soup.find_all('script'):
-
-        # Check if the script tag has the specific attributes
         if script.get('data-capla-store-data') == 'apollo':
-
             if script.string and '"results":' in script.string:
                 try:
-                    # Extract JSON data from the script tag
                     script_content = script.string.strip()
                     json_data = json.loads(script_content)
-                    
-                    # Recursively search for the "results" array
                     results = find_results_in_json(json_data)
 
-                    
-                    # if results is not None:
-                    #     print(f"Length of results array: {len(results)}")
-                    # else:
-                    #     logger.warning("'results' array not found in JSON data.")
+                    if results is None:
+                        logger.warning("No results found in JSON data.")
+                        return []
 
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to decode JSON: {str(e)}")
@@ -74,6 +66,10 @@ def parse_html_and_extract_results(html):
     
     if results:
         for result in results:
+            if result is None:
+                logger.warning("Encountered a None result.")
+                continue  # Skip None results
+            
             try:
                 basic_property = result.get("basicPropertyData", {})
                 price_info = result.get("priceDisplayInfoIrene", {}).get("displayPrice", {}).get("amountPerStay", {})
@@ -95,7 +91,7 @@ def parse_html_and_extract_results(html):
                 currency_symbol = "€" if "€" in price_info.get("amount", "") else "$"
 
                 listing_data.append({
-                    "Listing ID": basic_property.get("id"),
+                    "Listing ID": basic_property.get("id", None),  # Default to None if not found
                     "Listing Type": None,
                     "Name": result.get("displayName", {}).get("text", ""),
                     "Title": result.get("displayName", {}).get("text", ""),
@@ -261,7 +257,7 @@ def run_booking_bot(filters):
         query_string = urlparse.urlencode(query_params, doseq=True)
 
         final_url = base_url + query_string + "&selected_currency=EUR"
-        # print(final_url)
+        print(final_url)
         # Step 1: Fetch HTML content
         
         html = fetch_html_from_url(final_url)
@@ -275,7 +271,8 @@ def run_booking_bot(filters):
         valid_listings = [l for l in listings if l['Price'] != float('inf')]
         cheapest = min(valid_listings, key=lambda x: x['Price'], default=None)
         
-        listing_id = cheapest.get("Listing ID")
+        listing_id = cheapest.get("Listing ID", "")
+        
         cheapest["Listing URL"] = find_link_with_listing_id(html, listing_id)
         
         
