@@ -32,7 +32,7 @@ def fetch_html_from_url(final_url):
     }
 
     response = requests.request("POST", url, json=payload, headers=headers)
-    print(f"Response Status: {response.status_code}")  # Added print statement
+    # print(f"Response Status: {response.status_code}")  # Added print statement
     return response.text
 
 
@@ -58,6 +58,9 @@ def parse_html_and_extract_results(html):
                     if results is None:
                         logger.warning("No results found in JSON data.")
                         return []
+                    
+                    # Display the length of the results array
+                    logger.info(f"Number of results found: {len(results)}")
 
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to decode JSON: {str(e)}")
@@ -257,7 +260,7 @@ def run_booking_bot(filters):
         query_string = urlparse.urlencode(query_params, doseq=True)
 
         final_url = base_url + query_string + "&selected_currency=EUR"
-        print(final_url)
+        # print(final_url)
         # Step 1: Fetch HTML content
         
         html = fetch_html_from_url(final_url)
