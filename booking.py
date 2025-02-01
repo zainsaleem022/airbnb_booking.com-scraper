@@ -32,7 +32,7 @@ def fetch_html_from_url(final_url):
     }
 
     response = requests.request("POST", url, json=payload, headers=headers)
-
+    print(f"Response Status: {response.status_code}")  # Added print statement
     return response.text
 
 
