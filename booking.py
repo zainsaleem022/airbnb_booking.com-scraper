@@ -36,6 +36,49 @@ def fetch_html_from_url(final_url):
     return response.text
 
 
+def extract_tax_amount(translation):
+    """
+    Extracts the tax amount from the translation string.
+    Returns 0 if no tax amount is found.
+    """
+    if not translation:
+        return 0
+    
+    # Match patterns like "+€ 37 taxes and fees" or "+€ 37.50 taxes and fees"
+    tax_match = re.search(r'\+€\s*([\d,.]+)', translation)
+    if tax_match:
+        # Extract the numeric value and convert it to a float
+        tax_amount_str = tax_match.group(1).replace(',', '.')  # Handle commas as decimal separators
+        return float(tax_amount_str)
+    return 0
+
+
+
+
+def find_charges_info(obj):
+    """
+    Recursively searches for the 'chargesInfo' object in a nested dictionary.
+    """
+    if isinstance(obj, dict):
+        # Check if 'chargesInfo' exists in the current dictionary
+        if "chargesInfo" in obj:
+            return obj["chargesInfo"]
+        
+        # Recursively search through all values in the dictionary
+        for key, value in obj.items():
+            result = find_charges_info(value)
+            if result:
+                return result
+    elif isinstance(obj, list):
+        # Recursively search through all items in the list
+        for item in obj:
+            result = find_charges_info(item)
+            if result:
+                return result
+    return None
+
+
+
 def parse_html_and_extract_results(html):
     """Parse HTML and extract listings from the results array in the specified script tag."""
     listing_data = []
@@ -88,9 +131,19 @@ def parse_html_and_extract_results(html):
                 else:
                     full_image_url = ""
 
+                # Dynamically find the chargesInfo object
+                charges_info = find_charges_info(result)
+                tax_amount = 0
+
+                if charges_info:
+                    translation = charges_info.get("translation", "")
+                    # print(translation)  # Debugging: Print the translation string
+                    tax_amount = extract_tax_amount(translation)  # Extract the tax amount
+
                 # Calculate prices
                 amount_unformatted = price_info.get("amountUnformatted", 0)
-                discounted_price = round(amount_unformatted * 0.85, 2)
+                total_amount = amount_unformatted + tax_amount  # Add tax to the original amount
+                discounted_price = round(total_amount * 0.85, 2)
                 currency_symbol = "€" if "€" in price_info.get("amount", "") else "$"
 
                 listing_data.append({
@@ -106,9 +159,10 @@ def parse_html_and_extract_results(html):
                     "Website": "booking",
                     "Price": discounted_price
                 })
-                
+
             except Exception as e:
-                logger.error(f"Error processing listing: {str(e)}")
+                logger.error(f"Error processing result: {e}")
+
                 continue
 
         # print(f"Successfully processed {len(listing_data)} listings")
