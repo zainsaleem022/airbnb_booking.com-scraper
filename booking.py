@@ -30,10 +30,32 @@ def fetch_html_from_url(final_url):
         "Authorization": "Bearer 93912adfb968ad9986ff7abe454392fe365bc7f43b2d25f20ec7a10ee6c82779",
         "Content-Type": "application/json"
     }
-
     response = requests.request("POST", url, json=payload, headers=headers)
-    # print(f"Response Status: {response.status_code}")  # Added print statement
+    print(f"Response Status: {response.status_code}")  # Added print statement
     return response.text
+
+
+def find_results_in_json(data):
+    """Recursively search for the 'results' array in a JSON object."""
+    if isinstance(data, dict):
+        # Check if the current dictionary has a "results" key
+        if "results" in data and isinstance(data["results"], list):
+            return data["results"]
+        
+        # Recursively search in nested dictionaries
+        for key, value in data.items():
+            result = find_results_in_json(value)
+            if result is not None:
+                return result
+    elif isinstance(data, list):
+        # Recursively search in nested lists
+        for item in data:
+            result = find_results_in_json(item)
+            if result is not None:
+                return result
+    
+    # Return None if "results" is not found
+    return None
 
 
 def extract_tax_amount(translation):
@@ -170,29 +192,6 @@ def parse_html_and_extract_results(html):
         # print(f"Successfully processed {len(listing_data)} listings")
         return listing_data
     return []
-
-
-def find_results_in_json(data):
-    """Recursively search for the 'results' array in a JSON object."""
-    if isinstance(data, dict):
-        # Check if the current dictionary has a "results" key
-        if "results" in data and isinstance(data["results"], list):
-            return data["results"]
-        
-        # Recursively search in nested dictionaries
-        for key, value in data.items():
-            result = find_results_in_json(value)
-            if result is not None:
-                return result
-    elif isinstance(data, list):
-        # Recursively search in nested lists
-        for item in data:
-            result = find_results_in_json(item)
-            if result is not None:
-                return result
-    
-    # Return None if "results" is not found
-    return None
 
 
 
