@@ -41,9 +41,11 @@ def extract_tax_amount(translation):
     Extracts the tax amount from the translation string.
     Returns 0 if no tax amount is found.
     """
+    
     if not translation:
         return 0
-    
+
+    print(translation)
     # Match patterns like "+€ 37 taxes and fees" or "+€ 37.50 taxes and fees"
     tax_match = re.search(r'\+€\s*([\d,.]+)', translation)
     if tax_match:
