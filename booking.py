@@ -157,8 +157,9 @@ def parse_html_and_extract_results(html):
                 tax_amount = 0
 
                 if charges_info:
+                    print("charges_info", charges_info)
                     translation = charges_info.get("translation", "")
-                    # print(translation)  # Debugging: Print the translation string
+                    # print("?", translation)
                     tax_amount = extract_tax_amount(translation)  # Extract the tax amount
                     print("tax_amount", tax_amount)
 
