@@ -24,10 +24,9 @@ def fetch_html_from_url(final_url):
         "url": final_url,
         "zone": "web_unlocker1",
         "method": "GET",
-        "country": "US"
     }
     headers = {
-        "Authorization": "Bearer 93912adfb968ad9986ff7abe454392fe365bc7f43b2d25f20ec7a10ee6c82779",
+        "Authorization": "Bearer b2aa68b26120098e1d70492b6e9abdf36bed43e0ec54e8961a52f4cf8ae1d91b",
         "Content-Type": "application/json"
     }
     response = requests.request("POST", url, json=payload, headers=headers)
@@ -60,20 +59,17 @@ def find_results_in_json(data):
 
 def extract_tax_amount(translation):
     """
-    Extracts the tax amount from the translation string.
-    Returns 0 if no tax amount is found.
+    Extracts the first contiguous sequence of digits from the translation string.
+    Returns 0 if no digits are found.
     """
-    
     if not translation:
         return 0
-
-    print(translation)
-    # Match patterns like "+€ 37 taxes and fees" or "+€ 37.50 taxes and fees"
-    tax_match = re.search(r'\+€\s*([\d,.]+)', translation)
+    
+    # Match the first sequence of digits in the string
+    tax_match = re.search(r'\d+', translation)
     if tax_match:
         # Extract the numeric value and convert it to a float
-        tax_amount_str = tax_match.group(1).replace(',', '.')  # Handle commas as decimal separators
-        return float(tax_amount_str)
+        return float(tax_match.group(0))
     return 0
 
 
