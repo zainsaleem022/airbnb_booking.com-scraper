@@ -24,6 +24,7 @@ def fetch_html_from_url(final_url):
         "url": final_url,
         "zone": "web_unlocker1",
         "method": "GET",
+        "country": "EU"
     }
     headers = {
         "Authorization": "Bearer b2aa68b26120098e1d70492b6e9abdf36bed43e0ec54e8961a52f4cf8ae1d91b",
