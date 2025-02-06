@@ -64,7 +64,8 @@ def extract_tax_amount(translation):
     """
     if not translation:
         return 0
-    print(translation)
+        
+    print("translation: ", translation)
     # Match the first sequence of digits in the string
     tax_match = re.search(r'\d+', translation)
     if tax_match:
@@ -159,7 +160,7 @@ def parse_html_and_extract_results(html):
                     translation = charges_info.get("translation", "")
                     # print(translation)  # Debugging: Print the translation string
                     tax_amount = extract_tax_amount(translation)  # Extract the tax amount
-                    print(tax_amount)
+                    print("tax_amount", tax_amount)
 
                 # Calculate prices
                 amount_unformatted = price_info.get("amountUnformatted", 0)
