@@ -225,7 +225,7 @@ def find_link_with_listing_id(html, listing_id):
 def run_booking_bot(filters):
     """Main executor for Booking.com bot with error handling."""
     try:
-        base_url = "https://www.booking.com/searchresults.html?"
+        base_url = "https://www.booking.com/searchresults.html?aid=817353&"
         query_params = {}
 
         # Destination
