@@ -41,12 +41,11 @@ logger = logging.getLogger(__name__)
 #     return response.text
 
 def fetch_html_from_url(final_url):
-    """Fetch HTML content using an optimized Playwright Chromium instance with stealth."""
     ua = UserAgent()
-    start_time = time.time()
-
     with sync_playwright() as p:
-        # Launch Chromium with minimal settings
+        # Add proxy (replace with your proxy details)
+        proxy = {"server": "http://your_proxy:port"}  # e.g., "http://user:pass@proxy_host:port"
+        
         browser = p.chromium.launch(
             headless=True,
             args=[
@@ -63,11 +62,6 @@ def fetch_html_from_url(final_url):
                 '--single-process',
             ]
         )
-        
-        # Use a proxy to avoid blocks (replace with your proxy details)
-        proxy = {"server": "http://your_proxy:port"}  # e.g., "http://user:pass@proxy_host:port"
-        
-        # Create a lightweight context with stealth settings
         context = browser.new_context(
             user_agent=ua.random,
             viewport={"width": 1280, "height": 720},
@@ -79,38 +73,27 @@ def fetch_html_from_url(final_url):
                 'Accept-Language': 'en-US,en;q=0.5',
                 'Accept-Encoding': 'gzip, deflate, br',
                 'Referer': 'https://www.google.com/',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
             }
         )
-        
         page = context.new_page()
-        
         try:
-            # Navigate with a slightly longer timeout
             logger.info(f"Navigating to {final_url}")
-            response = page.goto(
-                final_url,
-                wait_until="domcontentloaded",
-                timeout=3000,  # Increased to 3 seconds to allow JS loading
-            )
-            
+            response = page.goto(final_url, wait_until="domcontentloaded", timeout=5000)  # Increased timeout
             if response and response.status == 200:
                 html = page.content()
-                logger.info(f"Fetched HTML in {time.time() - start_time:.2f} seconds")
-                logger.debug(f"HTML snippet: {html[:100]}")
+                logger.info(f"Fetched HTML successfully")
                 browser.close()
                 return html
             else:
                 logger.error(f"Navigation failed with status: {response.status if response else 'No response'}")
-        
         except Exception as e:
             logger.error(f"Playwright error: {e}")
-            # Capture page content for debugging if possible
-            html = page.content()
-            logger.debug(f"Partial HTML on error: {html[:100]}")
-        
         finally:
             browser.close()
-    
     return None
 
 
