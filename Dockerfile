@@ -30,11 +30,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install Playwright browsers (Chromium only)
 RUN python -m playwright install chromium
 
-# Copy your application code
+# Copy all Python files
 COPY main.py .
+COPY booking.py .
+COPY airbnb.py .
 
 # Set environment variable to ensure Playwright finds Chromium
 ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 
-# Command to run your script
+# Command to run your main script
 CMD ["python", "main.py"]
