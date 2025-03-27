@@ -10,29 +10,118 @@ import brotli  # Import the Brotli library
 import re
 import time
 from urllib.parse import quote
-import requests
+from fake_useragent import UserAgent  # Randomized user agents
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from curl_cffi import requests as curl_requests  # Use curl_cffi's requests replacement
+
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# def fetch_html_from_url(final_url):
+#     """Fetch HTML content from the final URL using Bright Data's API as a proxy with headers and cookies."""
+
+#     url = "https://api.brightdata.com/request"
+
+#     payload = {
+#         "format": "raw",
+#         "url": final_url,
+#         "zone": "web_unlocker1",
+#         "method": "GET",
+#         "country": "EU"
+#     }
+#     headers = {
+#         "Authorization": "Bearer b2aa68b26120098e1d70492b6e9abdf36bed43e0ec54e8961a52f4cf8ae1d91b",
+#         "Content-Type": "application/json"
+#     }
+#     response = requests.request("POST", url, json=payload, headers=headers)
+#     print(f"Response Status: {response.status_code}")  # Added print statement
+#     return response.text
+
 def fetch_html_from_url(final_url):
-    """Fetch HTML content from the final URL using Bright Data's API as a proxy with headers and cookies."""
-
-    url = "https://api.brightdata.com/request"
-
-    payload = {
-        "format": "raw",
-        "url": final_url,
-        "zone": "web_unlocker1",
-        "method": "GET",
-        "country": "EU"
-    }
+    """Fetch HTML content from the final URL using curl_cffi with Brotli and gzip decompression support."""
+    
+    # Randomized User-Agent
+    ua = UserAgent()
+    
     headers = {
-        "Authorization": "Bearer b2aa68b26120098e1d70492b6e9abdf36bed43e0ec54e8961a52f4cf8ae1d91b",
-        "Content-Type": "application/json"
+        'User-Agent': ua.random,  # Random user agent
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',  # Support multiple encodings
+        'Referer': 'https://www.google.com/',  # Spoof referrer
+        'DNT': '1',  # Do Not Track
+        'Upgrade-Insecure-Requests': '1',
+        'Connection': 'keep-alive',
     }
-    response = requests.request("POST", url, json=payload, headers=headers)
-    print(f"Response Status: {response.status_code}")  # Added print statement
-    return response.text
+    
+    retries = 0
+    max_retries = 2
+    retry_delay = 1
+    
+    while retries < max_retries:
+        try:
+            # Use curl_cffi to send the request
+            response = curl_requests.get(
+                final_url,
+                headers=headers,
+                timeout=10,
+                allow_redirects=True,
+                impersonate="chrome"  # Mimic Chrome browser to avoid bot detection
+            )
+            print(response)
+            
+            if response.status_code == 202:
+                # If the status code is 202, wait and retry
+                retries += 1
+                time.sleep(retry_delay)
+                continue
+            elif response.status_code == 200:
+                # If the status code is 200, proceed with processing the response
+                response.raise_for_status()  # Raise exception for 4xx/5xx status codes
+
+                # Log response headers and raw content for debugging
+                logger.debug("Response Headers: %s", response.headers)
+                logger.debug("Raw Content (first 100 bytes): %s", response.content[:100])
+
+                # Check the Content-Encoding header to determine decompression method
+                content_encoding = response.headers.get('Content-Encoding', '').lower()
+
+                if content_encoding == 'br':
+                    # Decompress Brotli response
+                    try:
+                        decompressed_data = brotli.decompress(response.content)
+                        return decompressed_data.decode('utf-8')  # Decode to string
+                    except brotli.error as e:
+                        logger.error("Brotli decompression failed: %s", e)
+                        return response.content.decode('utf-8', errors='replace')
+                elif content_encoding == 'gzip':
+                    # Decompress gzip response
+                    compressed_data = BytesIO(response.content)
+                    decompressed_data = gzip.GzipFile(fileobj=compressed_data).read()
+                    return decompressed_data.decode('utf-8')  # Decode to string
+                elif content_encoding == 'deflate':
+                    # Decompress deflate response
+                    decompressed_data = zlib.decompress(response.content)
+                    return decompressed_data.decode('utf-8')  # Decode to string
+                else:
+                    # Assume plain text response
+                    return response.text
+            else:
+                # Handle other status codes if needed
+                response.raise_for_status()
+
+        except curl_requests.RequestsError as e:
+            logger.error("Request failed: %s", e)
+            retries += 1
+            time.sleep(retry_delay)
+            if retries >= max_retries:
+                break
+    
+    return None  # Explicit return on failure
+
+
 
 
 def find_results_in_json(data):
