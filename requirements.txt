@@ -1,7 +1,12 @@
-beautifulsoup4==4.12.3
+beautifulsoup4==4.13.3
 Brotli==1.1.0
-fastapi==0.115.8
+curl_cffi==0.10.0
+fake_useragent==2.0.3
+fastapi==0.115.12
 playwright==1.49.1
-pydantic==2.10.6
+pydantic==2.11.0
 Requests==2.32.3
+selenium==4.30.0
+urllib3==2.3.0
 uvicorn==0.34.0
+webdriver_manager==4.0.2
