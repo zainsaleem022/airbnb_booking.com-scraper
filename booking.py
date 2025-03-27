@@ -14,7 +14,7 @@ from fake_useragent import UserAgent  # Randomized user agents
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from curl_cffi import requests as curl_requests  # Use curl_cffi's requests replacement
-
+from playwright.sync_api import sync_playwright
 
 
 logging.basicConfig(level=logging.INFO)
@@ -41,86 +41,77 @@ logger = logging.getLogger(__name__)
 #     return response.text
 
 def fetch_html_from_url(final_url):
-    """Fetch HTML content from the final URL using curl_cffi with Brotli and gzip decompression support."""
-    
-    # Randomized User-Agent
+    """Fetch HTML content using an optimized Playwright Chromium instance with stealth."""
     ua = UserAgent()
-    
-    headers = {
-        'User-Agent': ua.random,  # Random user agent
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',  # Support multiple encodings
-        'Referer': 'https://www.google.com/',  # Spoof referrer
-        'DNT': '1',  # Do Not Track
-        'Upgrade-Insecure-Requests': '1',
-        'Connection': 'keep-alive',
-    }
-    
-    retries = 0
-    max_retries = 2
-    retry_delay = 1
-    
-    while retries < max_retries:
+    start_time = time.time()
+
+    with sync_playwright() as p:
+        # Launch Chromium with minimal settings
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                '--no-sandbox',
+                '--disable-gpu',
+                '--disable-dev-shm-usage',
+                '--disable-extensions',
+                '--disable-background-networking',
+                '--disable-sync',
+                '--disable-translate',
+                '--no-first-run',
+                '--mute-audio',
+                '--disable-setuid-sandbox',
+                '--single-process',
+            ]
+        )
+        
+        # Use a proxy to avoid blocks (replace with your proxy details)
+        proxy = {"server": "http://your_proxy:port"}  # e.g., "http://user:pass@proxy_host:port"
+        
+        # Create a lightweight context with stealth settings
+        context = browser.new_context(
+            user_agent=ua.random,
+            viewport={"width": 1280, "height": 720},
+            java_script_enabled=True,
+            bypass_csp=True,
+            ignore_https_errors=True,
+            extra_http_headers={
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Referer': 'https://www.google.com/',
+            }
+        )
+        
+        page = context.new_page()
+        
         try:
-            # Use curl_cffi to send the request
-            response = curl_requests.get(
+            # Navigate with a slightly longer timeout
+            logger.info(f"Navigating to {final_url}")
+            response = page.goto(
                 final_url,
-                headers=headers,
-                timeout=10,
-                allow_redirects=True,
-                impersonate="chrome"  # Mimic Chrome browser to avoid bot detection
+                wait_until="domcontentloaded",
+                timeout=3000,  # Increased to 3 seconds to allow JS loading
             )
-            print(response)
             
-            if response.status_code == 202:
-                # If the status code is 202, wait and retry
-                retries += 1
-                time.sleep(retry_delay)
-                continue
-            elif response.status_code == 200:
-                # If the status code is 200, proceed with processing the response
-                response.raise_for_status()  # Raise exception for 4xx/5xx status codes
-
-                # Log response headers and raw content for debugging
-                logger.debug("Response Headers: %s", response.headers)
-                logger.debug("Raw Content (first 100 bytes): %s", response.content[:100])
-
-                # Check the Content-Encoding header to determine decompression method
-                content_encoding = response.headers.get('Content-Encoding', '').lower()
-
-                if content_encoding == 'br':
-                    # Decompress Brotli response
-                    try:
-                        decompressed_data = brotli.decompress(response.content)
-                        return decompressed_data.decode('utf-8')  # Decode to string
-                    except brotli.error as e:
-                        logger.error("Brotli decompression failed: %s", e)
-                        return response.content.decode('utf-8', errors='replace')
-                elif content_encoding == 'gzip':
-                    # Decompress gzip response
-                    compressed_data = BytesIO(response.content)
-                    decompressed_data = gzip.GzipFile(fileobj=compressed_data).read()
-                    return decompressed_data.decode('utf-8')  # Decode to string
-                elif content_encoding == 'deflate':
-                    # Decompress deflate response
-                    decompressed_data = zlib.decompress(response.content)
-                    return decompressed_data.decode('utf-8')  # Decode to string
-                else:
-                    # Assume plain text response
-                    return response.text
+            if response and response.status == 200:
+                html = page.content()
+                logger.info(f"Fetched HTML in {time.time() - start_time:.2f} seconds")
+                logger.debug(f"HTML snippet: {html[:100]}")
+                browser.close()
+                return html
             else:
-                # Handle other status codes if needed
-                response.raise_for_status()
-
-        except curl_requests.RequestsError as e:
-            logger.error("Request failed: %s", e)
-            retries += 1
-            time.sleep(retry_delay)
-            if retries >= max_retries:
-                break
+                logger.error(f"Navigation failed with status: {response.status if response else 'No response'}")
+        
+        except Exception as e:
+            logger.error(f"Playwright error: {e}")
+            # Capture page content for debugging if possible
+            html = page.content()
+            logger.debug(f"Partial HTML on error: {html[:100]}")
+        
+        finally:
+            browser.close()
     
-    return None  # Explicit return on failure
-
+    return None
 
 
 
